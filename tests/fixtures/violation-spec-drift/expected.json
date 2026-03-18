@@ -1,0 +1,49 @@
+{
+  "check": "spec_drift",
+  "base_version": "1.0.0",
+  "head_version": "1.1.0",
+  "delta": {
+    "added_rules": ["RULE_02", "RULE_SEC_01"],
+    "added_fields": [
+      { "entity": "User", "field": "is_pro" },
+      { "entity": "User", "field": "stripe_status" }
+    ],
+    "added_providers": ["StripeService"],
+    "modified_rules": [],
+    "removed_rules": []
+  },
+  "refactor_plan": [
+    {
+      "id": "RP_01",
+      "rule_id": "RULE_SEC_01",
+      "status": "missing",
+      "description": "Only actor:System can write User.is_pro. Route PUT /api/users/:id/profile allows any actor to set is_pro.",
+      "scope": ["Entity(User)"],
+      "location": { "file": "routes/users.ts", "line": 16 },
+      "fix_hint": "Add a system-actor check before processing is_pro updates."
+    },
+    {
+      "id": "RP_02",
+      "rule_id": "RULE_02",
+      "status": "missing",
+      "description": "Pro feature gate not implemented. No route checks entity.is_pro before granting access to premium features.",
+      "scope": ["Entity(User)", "Actor(AuthenticatedUser)"],
+      "location": null,
+      "fix_hint": "Add middleware that checks user.is_pro == true before pro-only route handlers."
+    },
+    {
+      "id": "RP_03",
+      "rule_id": null,
+      "status": "implemented",
+      "description": "User.is_pro and User.stripe_status fields added to database migration.",
+      "scope": ["Entity(User)"],
+      "location": { "file": "db/migrations/002_add_is_pro.ts", "line": 1 }
+    }
+  ],
+  "progress": {
+    "total": 3,
+    "completed": 1,
+    "pending": 2
+  },
+  "summary": "2 items pending. 1 item implemented."
+}

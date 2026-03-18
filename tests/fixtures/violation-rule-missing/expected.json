@@ -1,0 +1,24 @@
+{
+  "check": "contract_diff",
+  "manifest_version": "1.0.0",
+  "violations": [
+    {
+      "rule_id": "RULE_SEC_01",
+      "severity": "CRITICAL",
+      "title": "Reauthentication Required",
+      "description": "Route POST /api/users/:id/unlock does not verify that the session was created within the last 30 minutes.",
+      "scope_targets": ["Actor(AuthenticatedUser)", "Transition(LOCKED → ACTIVE)"],
+      "location": {
+        "file": "routes/users.ts",
+        "line": 9
+      },
+      "condition": "actor.type == 'AuthenticatedUser' AND Session.created_at > NOW() - INTERVAL(30, minutes)",
+      "fix_hint": "Add middleware to verify Session.created_at > NOW() - INTERVAL(30, minutes) before the route handler.",
+      "enforcement": {
+        "responses": ["reject", "audit_log", "alert"]
+      }
+    }
+  ],
+  "passed": [],
+  "summary": "1 violation found. 0 rules passed."
+}

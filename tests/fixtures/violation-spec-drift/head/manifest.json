@@ -1,0 +1,210 @@
+{
+  "meta": {
+    "featureId": "user_profile",
+    "version": "1.1.0",
+    "status": "approved",
+    "owner": "platform-team",
+    "dependsOn": [],
+    "tags": []
+  },
+  "feature": {
+    "name": "User Profile",
+    "intent": "Users can view and update their profile. Pro users get access to premium features via Stripe subscription."
+  },
+  "externalProviders": {
+    "StripeService": {
+      "methods": [
+        {
+          "name": "status",
+          "params": [
+            {
+              "name": "user_id",
+              "type": "uuid"
+            }
+          ],
+          "returns": "string"
+        }
+      ],
+      "source": "stripe-api",
+      "provides": "current subscription status for a user",
+      "lookupKey": "user_id"
+    }
+  },
+  "stateMachine": {
+    "states": {},
+    "transitions": []
+  },
+  "actors": {
+    "AuthenticatedUser": {
+      "read": "*",
+      "write": [
+        "User.display_name",
+        "User.email"
+      ]
+    },
+    "System": {
+      "read": "*",
+      "write": [
+        "User.is_pro"
+      ]
+    }
+  },
+  "enforcement": [
+    {
+      "ruleId": "RULE_01",
+      "severity": "HIGH",
+      "responses": [
+        {
+          "action": "reject"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_02",
+      "severity": "HIGH",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "audit_log"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_SEC_01",
+      "severity": "CRITICAL",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "audit_log"
+        },
+        {
+          "action": "alert"
+        }
+      ]
+    }
+  ],
+  "dataModel": {
+    "User": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "email": {
+          "name": "email",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "unique",
+              "args": []
+            },
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "pii",
+              "args": []
+            }
+          ]
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        },
+        "is_pro": {
+          "name": "is_pro",
+          "type": "boolean",
+          "modifiers": [
+            {
+              "name": "default",
+              "args": [
+                "false"
+              ]
+            },
+            {
+              "name": "sensitive",
+              "args": []
+            }
+          ]
+        },
+        "stripe_status": {
+          "name": "stripe_status",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "external",
+              "args": [
+                "StripeService"
+              ]
+            },
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  "computedProperties": {},
+  "rules": {
+    "RULE_01": {
+      "id": "RULE_01",
+      "title": "Email Format",
+      "references": [],
+      "type": "Validation",
+      "entity": "User",
+      "condition": "entity.email != ''",
+      "message": "A valid email is required."
+    },
+    "RULE_02": {
+      "id": "RULE_02",
+      "title": "Pro Feature Gate",
+      "references": [],
+      "type": "Business",
+      "entity": "User",
+      "condition": "entity.is_pro == true",
+      "message": "This feature requires a Pro subscription."
+    },
+    "RULE_SEC_01": {
+      "id": "RULE_SEC_01",
+      "title": "Only System Can Set is_pro",
+      "references": [],
+      "type": "Security",
+      "entity": "User",
+      "condition": "actor.type == 'System'",
+      "message": "The is_pro flag can only be set by the system via Stripe webhook."
+    }
+  }
+}

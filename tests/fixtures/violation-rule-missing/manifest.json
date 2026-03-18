@@ -1,0 +1,202 @@
+{
+  "meta": {
+    "featureId": "account_unlock",
+    "version": "1.0.0",
+    "status": "approved",
+    "owner": "platform-team",
+    "dependsOn": [],
+    "tags": []
+  },
+  "feature": {
+    "name": "Account Unlock",
+    "intent": "Allows locked users to unlock their account after verifying identity. Requires recent authentication to prevent session hijacking."
+  },
+  "externalProviders": {},
+  "stateMachine": {
+    "states": {
+      "LOCKED": "account locked after failed login attempts",
+      "ACTIVE": "account active and usable"
+    },
+    "transitions": [
+      {
+        "from": "LOCKED",
+        "to": "ACTIVE",
+        "actions": [
+          {
+            "type": "emit_event",
+            "args": [
+              "ACCOUNT_UNLOCKED"
+            ]
+          }
+        ],
+        "trigger": "User submits unlock form",
+        "guard": "RULE_01 AND RULE_SEC_01"
+      }
+    ]
+  },
+  "actors": {
+    "AuthenticatedUser": {
+      "read": "*",
+      "write": [
+        "User.unlock_token"
+      ]
+    }
+  },
+  "enforcement": [
+    {
+      "ruleId": "RULE_SEC_01",
+      "severity": "CRITICAL",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "audit_log"
+        },
+        {
+          "action": "alert"
+        }
+      ]
+    }
+  ],
+  "dataModel": {
+    "User": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('LOCKED', 'ACTIVE')",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "default",
+              "args": [
+                "ACTIVE"
+              ]
+            }
+          ]
+        },
+        "unlock_token": {
+          "name": "unlock_token",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            },
+            {
+              "name": "sensitive",
+              "args": []
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        }
+      }
+    },
+    "Session": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "indexed",
+              "args": []
+            },
+            {
+              "name": "fk",
+              "args": [
+                "User.id",
+                "many-to-one"
+              ]
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  "computedProperties": {},
+  "rules": {
+    "RULE_01": {
+      "id": "RULE_01",
+      "title": "Unlock Token Valid",
+      "references": [],
+      "type": "Validation",
+      "entity": "User",
+      "condition": "entity.unlock_token != ''",
+      "message": "Invalid unlock token."
+    },
+    "RULE_SEC_01": {
+      "id": "RULE_SEC_01",
+      "title": "Reauthentication Required",
+      "references": [],
+      "type": "Security",
+      "entity": "User",
+      "condition": "actor.type == 'AuthenticatedUser' AND Session.created_at > NOW() - INTERVAL(30, minutes)",
+      "message": "Please re-authenticate to complete this action."
+    }
+  }
+}

@@ -1,0 +1,601 @@
+{
+  "meta": {
+    "featureId": "user_auth",
+    "version": "1.0.0",
+    "status": "approved",
+    "owner": "platform-team",
+    "dependsOn": [
+      "email_service",
+      "billing_api"
+    ],
+    "tags": [
+      "auth",
+      "security",
+      "subscriptions"
+    ]
+  },
+  "feature": {
+    "name": "User Authentication",
+    "intent": "Provides secure login and session management for registered users. Integrates with the subscription entitlement system to gate pro features, and with the risk engine to detect fraudulent login attempts."
+  },
+  "externalProviders": {
+    "SubscriptionService": {
+      "methods": [
+        {
+          "name": "tier",
+          "params": [
+            {
+              "name": "user_id",
+              "type": "uuid"
+            }
+          ],
+          "returns": "string"
+        },
+        {
+          "name": "is_active",
+          "params": [
+            {
+              "name": "user_id",
+              "type": "uuid"
+            }
+          ],
+          "returns": "boolean"
+        }
+      ],
+      "source": "billing-api",
+      "provides": "current subscription tier and entitlement flags for a user",
+      "lookupKey": "user_id"
+    },
+    "FraudSignals": {
+      "methods": [
+        {
+          "name": "score",
+          "params": [
+            {
+              "name": "email",
+              "type": "string"
+            }
+          ],
+          "returns": "decimal"
+        }
+      ],
+      "source": "risk-engine",
+      "provides": "real-time fraud score indexed by email address",
+      "lookupKey": "email"
+    }
+  },
+  "stateMachine": {
+    "states": {
+      "PENDING_VERIFICATION": "account created, email not yet confirmed",
+      "ACTIVE": "fully authenticated and usable",
+      "SUSPENDED": "access revoked by admin action",
+      "LOCKED": "temporarily locked after failed login attempts",
+      "DELETED": "soft-deleted, PII erasure scheduled"
+    },
+    "transitions": [
+      {
+        "from": "PENDING_VERIFICATION",
+        "to": "ACTIVE",
+        "actions": [
+          {
+            "type": "send_email",
+            "args": [
+              "WELCOME_TEMPLATE"
+            ]
+          },
+          {
+            "type": "emit_event",
+            "args": [
+              "USER_ACTIVATED"
+            ]
+          }
+        ],
+        "trigger": "User clicks email verification link",
+        "guard": "RULE_01"
+      },
+      {
+        "from": "ACTIVE",
+        "to": "LOCKED",
+        "actions": [
+          {
+            "type": "send_email",
+            "args": [
+              "ACCOUNT_LOCKED_TEMPLATE"
+            ]
+          },
+          {
+            "type": "invalidate_sessions",
+            "args": [
+              "entity.id"
+            ]
+          }
+        ],
+        "trigger": "Failed login attempt recorded",
+        "guard": "RULE_02"
+      },
+      {
+        "from": "LOCKED",
+        "to": "ACTIVE",
+        "actions": [],
+        "trigger": "User completes unlock flow",
+        "guard": "RULE_03 AND RULE_SEC_01"
+      },
+      {
+        "from": "ACTIVE",
+        "to": "SUSPENDED",
+        "actions": [
+          {
+            "type": "invalidate_sessions",
+            "args": [
+              "entity.id"
+            ]
+          },
+          {
+            "type": "emit_event",
+            "args": [
+              "USER_SUSPENDED"
+            ]
+          }
+        ],
+        "trigger": "Admin issues suspension",
+        "guard": "RULE_SEC_02"
+      },
+      {
+        "from": "ACTIVE",
+        "to": "DELETED",
+        "actions": [
+          {
+            "type": "emit_event",
+            "args": [
+              "USER_DELETION_REQUESTED"
+            ]
+          },
+          {
+            "type": "set_field",
+            "args": [
+              "entity.deleted_at",
+              "NOW()"
+            ]
+          }
+        ],
+        "trigger": "User requests account deletion",
+        "guard": "RULE_04"
+      },
+      {
+        "from": "SUSPENDED",
+        "to": "ACTIVE",
+        "actions": [
+          {
+            "type": "send_email",
+            "args": [
+              "ACCOUNT_REINSTATED_TEMPLATE"
+            ]
+          },
+          {
+            "type": "emit_event",
+            "args": [
+              "USER_REINSTATED"
+            ]
+          }
+        ],
+        "trigger": "Admin lifts suspension",
+        "guard": "RULE_SEC_02"
+      }
+    ]
+  },
+  "actors": {
+    "Guest": {
+      "read": "none",
+      "write": [
+        "email",
+        "password_hash"
+      ]
+    },
+    "AuthenticatedUser": {
+      "read": "*",
+      "write": [
+        "email",
+        "password_hash",
+        "display_name"
+      ]
+    },
+    "Admin": {
+      "read": "none",
+      "write": [
+        "user.status",
+        "user.auth_status"
+      ],
+      "inherits": "AuthenticatedUser"
+    }
+  },
+  "enforcement": [
+    {
+      "ruleId": "RULE_SEC_01",
+      "severity": "CRITICAL",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "audit_log"
+        },
+        {
+          "action": "alert"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_SEC_02",
+      "severity": "HIGH",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "audit_log"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_02",
+      "severity": "MEDIUM",
+      "responses": [
+        {
+          "action": "audit_log"
+        },
+        {
+          "action": "alert"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_05",
+      "severity": "HIGH",
+      "responses": [
+        {
+          "action": "reject"
+        },
+        {
+          "action": "redirect",
+          "arg": "/upgrade"
+        }
+      ]
+    },
+    {
+      "ruleId": "RULE_06",
+      "severity": "LOW",
+      "responses": [
+        {
+          "action": "audit_log"
+        }
+      ]
+    }
+  ],
+  "dataModel": {
+    "User": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "email": {
+          "name": "email",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "unique",
+              "args": []
+            },
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "indexed",
+              "args": []
+            },
+            {
+              "name": "pii",
+              "args": []
+            }
+          ]
+        },
+        "password_hash": {
+          "name": "password_hash",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "sensitive",
+              "args": []
+            }
+          ]
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        },
+        "status": {
+          "name": "status",
+          "type": "enum('PENDING_VERIFICATION', 'ACTIVE', 'SUSPENDED', 'LOCKED', 'DELETED')",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "default",
+              "args": [
+                "PENDING_VERIFICATION"
+              ]
+            }
+          ]
+        },
+        "failed_login_count": {
+          "name": "failed_login_count",
+          "type": "integer",
+          "modifiers": [
+            {
+              "name": "default",
+              "args": [
+                "0"
+              ]
+            }
+          ]
+        },
+        "subscription_tier": {
+          "name": "subscription_tier",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "external",
+              "args": [
+                "SubscriptionService"
+              ]
+            },
+            {
+              "name": "indexed",
+              "args": []
+            }
+          ]
+        },
+        "fraud_score": {
+          "name": "fraud_score",
+          "type": "decimal",
+          "modifiers": [
+            {
+              "name": "external",
+              "args": [
+                "FraudSignals"
+              ]
+            },
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        }
+      }
+    },
+    "Session": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "indexed",
+              "args": []
+            },
+            {
+              "name": "fk",
+              "args": [
+                "User.id",
+                "many-to-one"
+              ]
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "required",
+              "args": []
+            }
+          ]
+        },
+        "ip_address": {
+          "name": "ip_address",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "sensitive",
+              "args": []
+            }
+          ]
+        },
+        "user_agent": {
+          "name": "user_agent",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  "computedProperties": {
+    "failed_logins_15m": {
+      "aggregate": "COUNT",
+      "entity": "LoginAttempt",
+      "filter": "entity.user_id == User.id AND entity.success == false",
+      "window": {
+        "value": 15,
+        "unit": "m",
+        "type": "rolling"
+      }
+    },
+    "outstanding_charges": {
+      "aggregate": "EXISTS",
+      "entity": "Charge",
+      "filter": "entity.user_id == User.id AND entity.status == 'pending'",
+      "window": null
+    }
+  },
+  "rules": {
+    "RULE_01": {
+      "id": "RULE_01",
+      "title": "Email Verification Token Valid",
+      "references": [],
+      "type": "Validation",
+      "entity": "User",
+      "condition": "entity.verification_token == token.value AND token.created_at > NOW() - INTERVAL(24, hours)",
+      "message": "Verification link is invalid or has expired."
+    },
+    "RULE_03": {
+      "id": "RULE_03",
+      "title": "Unlock Token Valid",
+      "references": [],
+      "type": "Validation",
+      "entity": "User",
+      "condition": "entity.unlock_token == token.value AND token.created_at > NOW() - INTERVAL(1, hours)",
+      "message": "Unlock link is invalid or has expired."
+    },
+    "RULE_02": {
+      "id": "RULE_02",
+      "title": "Max Failed Login Attempts",
+      "references": [],
+      "type": "Business",
+      "entity": "User",
+      "condition": "failed_logins_15m >= 5",
+      "message": "Account locked due to too many failed login attempts."
+    },
+    "RULE_04": {
+      "id": "RULE_04",
+      "title": "Deletion Requires No Pending Charges",
+      "references": [],
+      "type": "Business",
+      "entity": "User",
+      "condition": "entity.status == 'ACTIVE' AND outstanding_charges == false",
+      "message": "Cannot delete account with pending charges."
+    },
+    "RULE_05": {
+      "id": "RULE_05",
+      "title": "Pro Feature Gate",
+      "references": [],
+      "type": "Business",
+      "entity": "User",
+      "condition": "SubscriptionService.tier(entity.id) != 'pro' AND entity.requested_resource_requires_pro == true",
+      "message": "This feature requires a Pro subscription."
+    },
+    "RULE_06": {
+      "id": "RULE_06",
+      "title": "Fraud Score Threshold",
+      "references": [],
+      "type": "Business",
+      "entity": "User",
+      "condition": "FraudSignals.score(entity.email) > 0.85",
+      "message": "Login attempt flagged for review."
+    },
+    "RULE_SEC_01": {
+      "id": "RULE_SEC_01",
+      "title": "Reauthentication Required for Unlock",
+      "references": [],
+      "type": "Security",
+      "entity": "User",
+      "condition": "actor.type == 'AuthenticatedUser' AND Session.created_at < NOW() - INTERVAL(30, minutes)",
+      "message": "Please re-authenticate to complete this action."
+    },
+    "RULE_SEC_02": {
+      "id": "RULE_SEC_02",
+      "title": "Admin Suspension Audit",
+      "references": [],
+      "type": "Security",
+      "entity": "User",
+      "condition": "actor.type == 'Admin' AND (entity.status == 'SUSPENDED' OR entity.status == 'ACTIVE')",
+      "message": "Admin state changes require a documented reason and are audit-logged."
+    }
+  }
+}

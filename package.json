@@ -1,0 +1,22 @@
+{
+  "name": "vibe-parser",
+  "version": "0.1.0",
+  "description": "requirements.md → manifest.json parser",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "test": "ts-node tests/parser.test.ts && ts-node tests/diff-engine.test.ts",
+    "parse": "ts-node src/cli.ts",
+    "mcp": "ts-node mcp-server.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.79.0",
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}

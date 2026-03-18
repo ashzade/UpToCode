@@ -1,0 +1,109 @@
+{
+  "meta": {
+    "featureId": "user_profile",
+    "version": "1.0.0",
+    "status": "approved",
+    "owner": "platform-team",
+    "dependsOn": [],
+    "tags": []
+  },
+  "feature": {
+    "name": "User Profile",
+    "intent": "Users can view and update their profile. Access to premium features is not yet implemented."
+  },
+  "externalProviders": {},
+  "stateMachine": {
+    "states": {},
+    "transitions": []
+  },
+  "actors": {
+    "AuthenticatedUser": {
+      "read": "*",
+      "write": [
+        "User.display_name",
+        "User.email"
+      ]
+    }
+  },
+  "enforcement": [
+    {
+      "ruleId": "RULE_01",
+      "severity": "HIGH",
+      "responses": [
+        {
+          "action": "reject"
+        }
+      ]
+    }
+  ],
+  "dataModel": {
+    "User": {
+      "fields": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "modifiers": [
+            {
+              "name": "primary",
+              "args": []
+            },
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        },
+        "email": {
+          "name": "email",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "unique",
+              "args": []
+            },
+            {
+              "name": "required",
+              "args": []
+            },
+            {
+              "name": "pii",
+              "args": []
+            }
+          ]
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "string",
+          "modifiers": [
+            {
+              "name": "nullable",
+              "args": []
+            }
+          ]
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "modifiers": [
+            {
+              "name": "auto-gen",
+              "args": []
+            }
+          ]
+        }
+      }
+    }
+  },
+  "computedProperties": {},
+  "rules": {
+    "RULE_01": {
+      "id": "RULE_01",
+      "title": "Email Format",
+      "references": [],
+      "type": "Validation",
+      "entity": "User",
+      "condition": "entity.email != ''",
+      "message": "A valid email is required."
+    }
+  }
+}
