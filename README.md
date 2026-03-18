@@ -1,184 +1,115 @@
 # Guardian
 
-**Spec enforcement for AI-assisted codebases.**
+**Your AI co-worker that makes sure the code actually matches what you designed.**
 
-Guardian turns a plain-English `requirements.md` into a machine-readable contract, then continuously checks that your code, database, and access patterns honour it — automatically, on every edit Claude makes.
+When you build with Claude, code gets written fast. Really fast. But fast code isn't always *correct* code — Claude doesn't know your rules, your data boundaries, or what you actually meant when you described the feature. It just codes.
 
-Built for teams using Claude Code who want the speed of AI coding without losing control of correctness, security, and scale.
+Guardian fixes that. You write down what you're building in plain English. Guardian reads it, understands it, and then watches every file Claude touches — flagging anything that doesn't match what you said you wanted.
 
----
-
-## The Problem
-
-When Claude writes code quickly, it doesn't know your rules. It doesn't know which actor is allowed to write which table, what state transitions are valid, or which env vars must be set before an API call. Without enforcement, specs drift from code, security boundaries erode, and bugs accumulate silently.
-
-Guardian solves this by making the spec the source of truth — and checking everything against it automatically.
+It's the difference between vibe coding a project and shipping a product.
 
 ---
 
-## Four Pillars
+## What it does
 
-### 1. Contract Diff
-_Does the code honour the spec?_
+Think of Guardian as a technical co-worker sitting next to you while you build. It does four jobs:
 
-Parse `requirements.md` into `manifest.json`, then scan every `.py`, `.ts`, and `.js` file for rule violations. Returns violations with file locations and fix hints.
+### 1. Checks the code matches your plan
+You describe your feature in a document called `requirements.md`. Guardian reads it and turns it into a set of rules. Every time Claude edits a file, Guardian checks those rules and tells Claude immediately if something's wrong — before the mistake becomes a bug.
 
-Rules cover: required field validation, env var guards, state transition guards, actor access boundaries, business logic conditions.
+> *"You said the API key must be set before calling Claude. This code skips that check."*
 
-### 2. Adversarial Test Generator
-_What inputs would break the spec?_
+### 2. Tries to break your app before your users do
+Guardian reads your plan and generates a list of adversarial test cases — wrong inputs, missing fields, invalid sequences of events. It hands these to Claude with the question: does the code handle all of these correctly? Most vibe-coded apps don't. Now yours will.
 
-Algorithmically derives test cases directly from the manifest — no Claude API call required. Generates missing required fields, invalid enum values, bad state transitions, rule inversions, and missing env vars. Outputs a markdown test report ready to hand to Claude for verification.
+> *"What happens if someone submits a form with no email? What if they call this endpoint twice?"*
 
-### 3. Security Audit
-_Who is writing what they shouldn't?_
+### 3. Spots security holes in who can access what
+You describe who is allowed to do what in your app. Guardian scans the code and flags anywhere that a part of the app is touching data it shouldn't be allowed to touch.
 
-Uses the `Actors & Access` section of the manifest to determine which actors are permitted to write each entity. Scans HTTP route handlers for write operations that lack auth/role checks. Flags violations with location, blocked actors, and fix hint.
+> *"Your dashboard API is writing directly to a table that only the background processor should write to."*
 
-### 4. Scale Monitor
-_Is the live system healthy?_
+### 4. Checks your database is healthy
+Once your app is running, Guardian connects to your database and checks whether everything looks right — are documents stuck in a processing queue? Are there records pointing to things that no longer exist? Is anything failing at an unusual rate?
 
-Connects to a SQLite database and evaluates health checks derived directly from the manifest: entity state distribution, computed property values, FK integrity, and record volumes. Flags PENDING backlogs, elevated failure rates, and orphaned records.
+> *"16 tasks reference documents that don't exist. 0 documents are stuck in pending."*
 
 ---
 
-## Live Hook
-
-Guardian installs a `PostToolUse` hook into Claude Code. After every file edit Claude makes, it automatically re-runs `contract-diff` on the changed file. If violations are found, they appear as feedback in Claude's current turn — so Claude fixes them immediately rather than accumulating debt.
+## How it fits into your workflow
 
 ```
-Guardian: 2 rule violation(s) in processor.py
-  RULE_05 [MEDIUM]:45 — API Key Required for Analysis
-    Fix: check that ANTHROPIC_API_KEY is set before executing the operation
-  RULE_01 [HIGH]:102 — Content Must Be Non-Empty
-    Fix: validate raw_content is non-empty before calling analyze()
+You write requirements.md        →  Describe what you're building in plain English
+Guardian reads it                →  Turns it into a set of enforceable rules
+You vibe code with Claude        →  Claude writes the code fast
+Guardian watches every edit      →  Flags anything that breaks the rules instantly
+Claude fixes it in the same turn →  The code stays honest as you go
 ```
+
+By the time you're ready to ship, you have:
+- Code that matches what you designed
+- A test suite that tries to break it
+- Confirmation that your security boundaries hold
+- A live health check on your database
+
+That's what separates a project from a product.
 
 ---
 
 ## Installation
 
-**Requirements:** Node.js 18+, Claude Code CLI
+**You need:** [Node.js](https://nodejs.org) (v18 or later) and [Claude Code](https://claude.ai/code).
 
 ```bash
 git clone https://github.com/ashzade/guardian
 cd guardian && ./setup.sh
 ```
 
-`setup.sh` installs dependencies and prints the exact config snippets for your machine. You'll get two things to add to your project:
+The setup script installs everything and prints two small config files to copy into your project. One tells Claude Code that Guardian exists. The other turns on the live hook so Guardian runs on every edit automatically.
 
-**`.mcp.json`** (project root) — registers Guardian as an MCP server in Claude Code:
-```json
-{
-  "mcpServers": {
-    "guardian": {
-      "command": "node",
-      "args": [
-        "/path/to/guardian/node_modules/.bin/ts-node",
-        "--transpile-only",
-        "/path/to/guardian/mcp-server.ts"
-      ]
-    }
-  }
-}
-```
-
-**`.claude/settings.json`** (project root) — enables the live hook:
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "matcher": "Edit|Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "node /path/to/guardian/node_modules/.bin/ts-node --transpile-only /path/to/guardian/guardian-hook.ts"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-`setup.sh` fills in the correct absolute paths for your machine automatically.
-
-Restart Claude Code after adding these files.
+After that, restart Claude Code in your project.
 
 ---
 
-## Usage
+## Getting started
 
-### Start from scratch
-```
-Tell Claude: "run compile-spec for this project"
-```
-Guardian parses `requirements.md` and writes `manifest.json`. From here, every edit is checked automatically.
+**If you're starting a new project:**
 
-### Start from existing code
-```
-Tell Claude: "run generate-spec for this project"
-```
-Guardian analyses your codebase and generates a `requirements.md` using Claude. Requires `ANTHROPIC_API_KEY` in your environment.
+Open Claude Code in your project folder and say:
 
-### MCP Tools
+> *"Write a requirements.md for this project"*
 
-| Tool | What it does |
+Then once it's written:
+
+> *"Run compile-spec for this project"*
+
+Guardian reads your requirements and from that point on, watches every edit Claude makes.
+
+**If you already have code:**
+
+> *"Run generate-spec for this project"*
+
+Guardian analyses your existing code and writes a `requirements.md` for you automatically. Requires `ANTHROPIC_API_KEY` set in your environment.
+
+---
+
+## What you can ask Guardian to do
+
+Once installed, just ask Claude naturally:
+
+| What you say | What happens |
 |---|---|
-| `compile-spec` | Parse `requirements.md` → `manifest.json` |
-| `check-integrity` | Verify manifest is in sync with requirements |
-| `contract-diff` | Check code against all rules in the manifest |
-| `security-audit` | Find unguarded writes to restricted entities |
-| `generate-tests` | Generate adversarial test cases from the manifest |
-| `scale-monitor` | Query live SQLite DB for health checks |
-| `generate-spec` | Analyse codebase and write `requirements.md` using Claude |
-| `spec-drift` | Compare two manifests and get a refactor checklist |
-
-All tools accept `project_root` for zero-config auto-discovery of `requirements.md`, `manifest.json`, and code files.
+| *"Run compile-spec for this project"* | Turns your requirements.md into an enforceable ruleset |
+| *"Run contract-diff for this project"* | Checks all your code against the rules right now |
+| *"Run generate-tests for this project"* | Generates a list of ways to break your app |
+| *"Run security-audit for this project"* | Finds data access that shouldn't be there |
+| *"Run scale-monitor for this project"* | Checks your live database for problems |
+| *"Run generate-spec for this project"* | Reads your code and writes requirements.md for you |
 
 ---
 
-## Requirements Format
+## Supported languages
 
-Guardian reads a structured `requirements.md`. You can write it by hand or generate it with `generate-spec`.
+Python, TypeScript, JavaScript.
 
-```markdown
----
-feature_id: my_feature
-version: 1.0.0
-status: draft
-owner: your-name
----
-
-# My Feature
-
-## External State Providers
-...
-
-## State Machine
-...
-
-## Actors & Access
-...
-
-## Data Model
-...
-
-## Logic Rules
-
-#### RULE_01: Content Must Be Non-Empty
-Type: Validation
-Entity: Document
-Condition: entity.raw_content != '' AND entity.raw_content != 'null'
-Message: No content extracted; skipping analysis.
-```
-
-See `tests/fixtures/` for complete examples.
-
----
-
-## Supported Languages
-
-- Python (Flask routes, SQLAlchemy, raw sqlite3)
-- TypeScript / JavaScript (Express, Knex, raw queries)
+Works with Flask, Express, FastAPI, SQLAlchemy, Knex, and raw SQL queries.
