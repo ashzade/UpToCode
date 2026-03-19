@@ -56,6 +56,14 @@ That's what separates a project from a product.
 
 ---
 
+## See it in action
+
+**→ [Full walkthrough: building a waitlist app with Guardian](docs/walkthrough.md)**
+
+Covers writing `requirements.md`, compiling the spec, Claude writing code with bugs, Guardian catching them in real time, and generating the test suite. Takes about 5 minutes to read.
+
+---
+
 ## Installation
 
 **You need:** [Node.js](https://nodejs.org) (v18 or later) and [Claude Code](https://claude.ai/code).
