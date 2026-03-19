@@ -335,6 +335,19 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     // ── start-interview ───────────────────────────────────────
     if (name === 'start-interview') {
       const input = StartInterviewInput.parse(args);
+
+      // If requirements.md already exists, compile it and skip the interview
+      const existingReqPath = path.join(input.project_root, 'requirements.md');
+      if (fs.existsSync(existingReqPath)) {
+        const requirementsContent = fs.readFileSync(existingReqPath, 'utf-8');
+        const manifest = parse(requirementsContent);
+        const manifestPath = path.join(input.project_root, 'manifest.json');
+        fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+        return {
+          content: [{ type: 'text', text: `✓ Found existing requirements.md — compiled to manifest.json. Enforcement is active.\n\nIf you want to update your spec, say "update my spec" and I'll ask what changed.` }],
+        };
+      }
+
       const prompt = buildInterviewPrompt(input.context);
       const text = `${prompt}\n\n---\n_Project root: ${input.project_root}_\n_When all questions are answered, call finish-interview with the answers._`;
       return { content: [{ type: 'text', text }] };
