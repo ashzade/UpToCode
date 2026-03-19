@@ -110,6 +110,7 @@ export interface InterviewTranscript {
 export interface BuildSpecResult {
   spec: string;
   outputPath: string;
+  manifestPath: string | null;
   parseAttempts: number;
   warnings: string[];
 }
@@ -122,13 +123,27 @@ function buildSynthesisSystemPrompt(): string {
 ## CRITICAL FORMAT RULES
 
 1. Output ONLY the requirements.md content. No explanation, no preamble, no code fences.
-2. The ONLY allowed top-level sections (## headings) are: External State Providers, State Machine, Actors & Access, Data Model, Computed Properties, Logic Rules. No other sections.
-3. Data Model fields use ONLY this syntax: \`field_name: type | modifier | modifier\` — NO markdown tables, NO bullets, NO bold.
-4. Logic Rules use ONLY bare key-value lines (Type:, Entity:, Condition:, Message:) — NO bullets, NO bold, NO dashes.
-5. State Machine transitions use ONLY \`#### FROM → TO\` headings with bare Trigger:/Guard:/Action: lines.
-6. Computed Properties use ONLY bare key-value lines (Aggregate:, Entity:, Filter:, Window:).
-7. Condition fields MUST use predicate grammar — entity.field, env(VAR), operators ==, !=, AND, OR.
-8. version MUST be semver: 1.0.0
+2. The file MUST start with YAML frontmatter between --- delimiters. This is mandatory — missing frontmatter is a fatal parse error.
+3. The ONLY allowed top-level sections (## headings) are: External State Providers, State Machine, Actors & Access, Data Model, Computed Properties, Logic Rules. No other sections.
+4. Data Model fields use ONLY this syntax: \`field_name: type | modifier | modifier\` — NO markdown tables, NO bullets, NO bold.
+5. Logic Rules use ONLY bare key-value lines (Type:, Entity:, Condition:, Message:) — NO bullets, NO bold, NO dashes.
+6. State Machine transitions use ONLY \`#### FROM → TO\` headings with bare Trigger:/Guard:/Action: lines.
+7. Computed Properties use ONLY bare key-value lines (Aggregate:, Entity:, Filter:, Window:).
+8. Condition fields MUST use predicate grammar — entity.field, env(VAR), operators ==, !=, AND, OR.
+9. version MUST be semver: 1.0.0
+
+## MANDATORY FIRST LINES
+
+Your output MUST begin exactly like this (fill in the values):
+
+---
+feature_id: snake_case_name
+version: 1.0.0
+status: draft
+owner: founder
+tags:
+  - relevant_tag
+---
 
 ## CONDITION GRAMMAR
 
@@ -307,19 +322,22 @@ export async function buildSpecFromTranscript(
     lastSpec = spec;
 
     try {
-      parse(spec);
+      const manifest = parse(spec);
       const fs = await import('fs');
+      const nodePath = await import('path');
+      // Write requirements.md
       fs.writeFileSync(outputPath, spec, 'utf-8');
-      return { spec, outputPath, parseAttempts: attempt, warnings };
+      // Auto-compile: write manifest.json so enforcement is immediately active
+      const manifestPath = nodePath.join(nodePath.dirname(outputPath), 'manifest.json');
+      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+      return { spec, outputPath, manifestPath, parseAttempts: attempt, warnings };
     } catch (err) {
       lastError = err instanceof Error ? err.message : String(err);
       warnings.push(`Attempt ${attempt} parse error: ${lastError}`);
     }
   }
 
-  // Write best-effort output
-  const fs = await import('fs');
-  fs.writeFileSync(outputPath, lastSpec, 'utf-8');
-  warnings.push(`Spec did not parse cleanly after ${MAX_RETRIES} attempts. Saved for manual review.`);
-  return { spec: lastSpec, outputPath, parseAttempts: MAX_RETRIES, warnings };
+  // All retries exhausted — do NOT write a broken file
+  warnings.push(`Spec did not parse cleanly after ${MAX_RETRIES} attempts. Last error: ${lastError}`);
+  return { spec: lastSpec, outputPath, manifestPath: null, parseAttempts: MAX_RETRIES, warnings };
 }

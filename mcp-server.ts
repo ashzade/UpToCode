@@ -362,11 +362,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const outputPath = input.output_path ?? path.join(input.project_root, 'requirements.md');
       const result = await buildSpecFromTranscript(transcript, outputPath, apiKey, input.feature_name, input.owner);
 
+      if (!result.manifestPath) {
+        // Failed to parse after all retries — don't write a broken file
+        const errorDetail = result.warnings.join('\n');
+        throw new Error(`Could not generate a valid spec after ${result.parseAttempts} attempts.\n\n${errorDetail}`);
+      }
+
       const statusLine = result.warnings.length > 0
         ? `⚠ ${result.warnings.join(' | ')}`
-        : `✓ Parsed cleanly on attempt ${result.parseAttempts}`;
+        : `✓ Spec parsed cleanly on attempt ${result.parseAttempts}`;
 
-      const text = `${result.spec}\n\n---\n${statusLine}\nWritten to: ${result.outputPath}\n\nRun compile-spec to activate enforcement.`;
+      const text = `${result.spec}\n\n---\n${statusLine}\n✓ requirements.md written to: ${result.outputPath}\n✓ manifest.json written — enforcement is now active.`;
       return { content: [{ type: 'text', text }] };
     }
 
