@@ -344,7 +344,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const manifestPath = path.join(input.project_root, 'manifest.json');
         fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
         return {
-          content: [{ type: 'text', text: `✓ Found existing requirements.md — compiled to manifest.json. Enforcement is active.\n\nIf you want to update your spec, say "update my spec" and I'll ask what changed.` }],
+          content: [{ type: 'text', text: `✓ Found existing requirements.md — compiled to manifest.json. Enforcement is active.\n\nWould you like to:\n1. Start building (enforcement is already on)\n2. Update the spec (describe what's changed and I'll revise it)` }],
         };
       }
 
