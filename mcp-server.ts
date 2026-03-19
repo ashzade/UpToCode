@@ -16,6 +16,7 @@ import { generateSpec } from './src/interview/spec-generator';
 import { generateTests, renderMarkdown } from './src/adversarial/test-generator';
 import { securityAudit, renderSecurityReport } from './src/security/access-auditor';
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
+import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 
 // ── Schema definitions ──────────────────────────────────────────
 
@@ -39,6 +40,27 @@ const SpecDriftInput = z.object({
   base_manifest_path: z.string(),
   head_manifest_path: z.string(),
   code_paths: z.array(z.string()),
+});
+
+const StartInterviewInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory where requirements.md will be written'),
+  context: z.string().optional().describe('Any context you already know about the project'),
+});
+
+const FinishInterviewInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory'),
+  what: z.string().describe('What the app does'),
+  users: z.string().describe('Who uses the app and their roles'),
+  main_thing: z.string().describe('The main things the app tracks or stores'),
+  fields: z.string().describe('What information is stored about each thing'),
+  states: z.string().describe('Stages or statuses things go through'),
+  actions: z.string().describe('Key actions users can take'),
+  rules: z.string().describe('Rules the app must enforce'),
+  external: z.string().describe('Outside services the app connects to'),
+  env_vars: z.string().describe('Secret keys and environment variables needed'),
+  feature_name: z.string().optional().describe('Name of the feature or app'),
+  owner: z.string().optional().describe('Owner name or handle'),
+  output_path: z.string().optional().describe('Where to write requirements.md. Defaults to <project_root>/requirements.md'),
 });
 
 const ScaleMonitorInput = z.object({
@@ -112,6 +134,43 @@ const server = new Server(
 server.setRequestHandler(ListToolsRequestSchema, async () => {
   return {
     tools: [
+      {
+        name: 'start-interview',
+        description:
+          'Start a conversational interview to build requirements.md from scratch. Returns a prompt for Claude to ask the user plain-English questions one at a time — no technical knowledge required. When all answers are collected, call finish-interview to generate the spec.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Where requirements.md will be written' },
+            context: { type: 'string', description: 'Any context already known about the project' },
+          },
+          required: ['project_root'],
+        },
+      },
+      {
+        name: 'finish-interview',
+        description:
+          'Takes the collected interview answers and generates a valid requirements.md using Claude. Validates it parses cleanly and writes it to the project. Call this after start-interview once all questions have been answered.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string' },
+            what: { type: 'string' },
+            users: { type: 'string' },
+            main_thing: { type: 'string' },
+            fields: { type: 'string' },
+            states: { type: 'string' },
+            actions: { type: 'string' },
+            rules: { type: 'string' },
+            external: { type: 'string' },
+            env_vars: { type: 'string' },
+            feature_name: { type: 'string' },
+            owner: { type: 'string' },
+            output_path: { type: 'string' },
+          },
+          required: ['project_root', 'what', 'users', 'main_thing', 'fields', 'states', 'actions', 'rules', 'external', 'env_vars'],
+        },
+      },
       {
         name: 'compile-spec',
         description:
@@ -273,6 +332,44 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   try {
+    // ── start-interview ───────────────────────────────────────
+    if (name === 'start-interview') {
+      const input = StartInterviewInput.parse(args);
+      const prompt = buildInterviewPrompt(input.context);
+      const text = `${prompt}\n\n---\n_Project root: ${input.project_root}_\n_When all questions are answered, call finish-interview with the answers._`;
+      return { content: [{ type: 'text', text }] };
+    }
+
+    // ── finish-interview ───────────────────────────────────────
+    if (name === 'finish-interview') {
+      const input = FinishInterviewInput.parse(args);
+
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('ANTHROPIC_API_KEY environment variable not set');
+
+      const transcript: InterviewTranscript = {
+        what: input.what,
+        users: input.users,
+        main_thing: input.main_thing,
+        fields: input.fields,
+        states: input.states,
+        actions: input.actions,
+        rules: input.rules,
+        external: input.external,
+        env_vars: input.env_vars,
+      };
+
+      const outputPath = input.output_path ?? path.join(input.project_root, 'requirements.md');
+      const result = await buildSpecFromTranscript(transcript, outputPath, apiKey, input.feature_name, input.owner);
+
+      const statusLine = result.warnings.length > 0
+        ? `⚠ ${result.warnings.join(' | ')}`
+        : `✓ Parsed cleanly on attempt ${result.parseAttempts}`;
+
+      const text = `${result.spec}\n\n---\n${statusLine}\nWritten to: ${result.outputPath}\n\nRun compile-spec to activate enforcement.`;
+      return { content: [{ type: 'text', text }] };
+    }
+
     // ── compile-spec ──────────────────────────────────────────
     if (name === 'compile-spec') {
       const input = CompileSpecInput.parse(args);
