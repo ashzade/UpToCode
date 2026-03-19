@@ -4,7 +4,7 @@
 
 When you build with Claude, code gets written fast. Really fast. But fast code isn't always *correct* code — Claude doesn't know your rules, your data boundaries, or what you actually meant when you described the feature. It just codes.
 
-Guardian fixes that. You write down what you're building in plain English. Guardian reads it, understands it, and then watches every file Claude touches — flagging anything that doesn't match what you said you wanted.
+Guardian fixes that. You tell Guardian what you're building in plain English — through a conversation, no technical knowledge required. Guardian turns that into a set of rules, then watches every file Claude touches and flags anything that doesn't match what you said you wanted.
 
 It's the difference between vibe coding a project and shipping a product.
 
@@ -15,7 +15,7 @@ It's the difference between vibe coding a project and shipping a product.
 Think of Guardian as a technical co-worker sitting next to you while you build. It does four jobs:
 
 ### 1. Checks the code matches your plan
-You describe your feature in a document called `requirements.md`. Guardian reads it and turns it into a set of rules. Every time Claude edits a file, Guardian checks those rules and tells Claude immediately if something's wrong — before the mistake becomes a bug.
+You describe your feature in a conversation. Guardian turns it into a set of rules. Every time Claude edits a file, Guardian checks those rules and tells Claude immediately if something's wrong — before the mistake becomes a bug.
 
 > *"You said the API key must be set before calling Claude. This code skips that check."*
 
@@ -30,7 +30,7 @@ You describe who is allowed to do what in your app. Guardian scans the code and 
 > *"Your dashboard API is writing directly to a table that only the background processor should write to."*
 
 ### 4. Checks your database is healthy
-Once your app is running, Guardian connects to your database and checks whether everything looks right — are documents stuck in a processing queue? Are there records pointing to things that no longer exist? Is anything failing at an unusual rate?
+Once your app is running, Guardian connects to your database and checks whether everything looks right — are records stuck in a queue? Are there items pointing to things that no longer exist? Is anything failing at an unusual rate?
 
 > *"16 tasks reference documents that don't exist. 0 documents are stuck in pending."*
 
@@ -39,11 +39,11 @@ Once your app is running, Guardian connects to your database and checks whether 
 ## How it fits into your workflow
 
 ```
-You write requirements.md        →  Describe what you're building in plain English
-Guardian reads it                →  Turns it into a set of enforceable rules
-You vibe code with Claude        →  Claude writes the code fast
-Guardian watches every edit      →  Flags anything that breaks the rules instantly
-Claude fixes it in the same turn →  The code stays honest as you go
+Guardian interviews you           →  Asks plain-English questions about what you're building
+Guardian builds your spec         →  Turns your answers into an enforceable ruleset
+You vibe code with Claude         →  Claude writes the code fast
+Guardian watches every edit       →  Flags anything that breaks the rules instantly
+Claude fixes it in the same turn  →  The code stays honest as you go
 ```
 
 By the time you're ready to ship, you have:
@@ -60,7 +60,7 @@ That's what separates a project from a product.
 
 **→ [Full walkthrough: building a waitlist app with Guardian](docs/walkthrough.md)**
 
-Covers writing `requirements.md`, compiling the spec, Claude writing code with bugs, Guardian catching them in real time, and generating the test suite. Takes about 5 minutes to read.
+Covers the full journey — Guardian interviewing you, building the spec, Claude writing code with bugs, Guardian catching them in real time, and generating the test suite. Takes about 5 minutes to read.
 
 ---
 
@@ -73,7 +73,7 @@ git clone https://github.com/ashzade/guardian
 cd guardian && ./setup.sh
 ```
 
-The setup script installs everything and prints two small config files to copy into your project. One tells Claude Code that Guardian exists. The other turns on the live hook so Guardian runs on every edit automatically.
+The setup script installs everything and prints two small config snippets to copy into your project. One tells Claude Code that Guardian exists. The other turns on the live hook so Guardian runs on every edit automatically.
 
 After that, restart Claude Code in your project.
 
@@ -81,23 +81,19 @@ After that, restart Claude Code in your project.
 
 ## Getting started
 
-**If you're starting a new project:**
+**Starting from scratch — no code yet:**
 
 Open Claude Code in your project folder and say:
 
-> *"Write a requirements.md for this project"*
+> *"Interview me to build my spec"*
 
-Then once it's written:
+Guardian asks you plain-English questions about what you're building. You answer in your own words. When you're done, it writes the spec and activates enforcement automatically. No technical knowledge required.
 
-> *"Run compile-spec for this project"*
-
-Guardian reads your requirements and from that point on, watches every edit Claude makes.
-
-**If you already have code:**
+**Already have code:**
 
 > *"Run generate-spec for this project"*
 
-Guardian analyses your existing code and writes a `requirements.md` for you automatically. Requires `ANTHROPIC_API_KEY` set in your environment.
+Guardian analyses your existing code and writes the spec for you. Requires `ANTHROPIC_API_KEY` in your environment.
 
 ---
 
@@ -107,12 +103,13 @@ Once installed, just ask Claude naturally:
 
 | What you say | What happens |
 |---|---|
-| *"Run compile-spec for this project"* | Turns your requirements.md into an enforceable ruleset |
+| *"Interview me to build my spec"* | Guardian asks you questions and builds requirements.md from your answers |
+| *"Run compile-spec for this project"* | Activates enforcement from your requirements.md |
 | *"Run contract-diff for this project"* | Checks all your code against the rules right now |
 | *"Run generate-tests for this project"* | Generates a list of ways to break your app |
 | *"Run security-audit for this project"* | Finds data access that shouldn't be there |
 | *"Run scale-monitor for this project"* | Checks your live database for problems |
-| *"Run generate-spec for this project"* | Reads your code and writes requirements.md for you |
+| *"Run generate-spec for this project"* | Reads existing code and writes requirements.md for you |
 
 ---
 
