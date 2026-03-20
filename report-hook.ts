@@ -227,7 +227,7 @@ function main() {
   const resolvedFiles = new Set(cleanEntries.map(e => e.file).filter(f => flaggedFiles.has(f)));
   const openFiles = [...flaggedFiles].filter(f => !resolvedFiles.has(f));
 
-  const inspectionResult = runInspection(manifest, projectRoot);
+  const inspectionResult = runInspection(manifest, projectRoot, { skipTests: true });
 
   const gitStatus = !remote ? 'no_remote'
     : pushResult?.status === 'pushed' ? 'pushed'

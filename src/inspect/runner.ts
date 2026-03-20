@@ -55,11 +55,11 @@ export interface InspectionResult {
 
 // ── Runner ────────────────────────────────────────────────────────────────────
 
-export function runInspection(manifest: Manifest, projectRoot: string): InspectionResult {
+export function runInspection(manifest: Manifest, projectRoot: string, opts?: { skipTests?: boolean }): InspectionResult {
   const files = collectCodeFiles(projectRoot);
   const violations = contractDiff(manifest, files).violations;
   const securityFindings = securityAudit(manifest, files).findings;
-  const testSuite = generateTests(manifest);
+  const testSuite = opts?.skipTests ? { tests: [] } : generateTests(manifest);
   return { violations, securityFindings, testSuite, filesChecked: files.length, projectRoot };
 }
 
@@ -83,8 +83,6 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
     ? '✅  No unguarded writes'
     : `❌  ${securityFindings.length} finding(s)`;
 
-  const testStatus = `⚠️   ${testSuite.tests.length} cases · ${highTests} high-severity`;
-
   const lines: string[] = [
     '',
     '─────────────────────────────────────────────────────',
@@ -92,9 +90,16 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
     '─────────────────────────────────────────────────────',
     `  Logic Enforcement    ${logicStatus}`,
     `  Security Audit       ${secStatus}`,
-    `  Adversarial Tests    ${testStatus}`,
-    '  Database Health      ⏭️   Run scale-monitor to check',
   ];
+
+  if (testSuite.tests.length > 0) {
+    const highTests = testSuite.tests.filter(t => t.severity === 'HIGH').length;
+    lines.push(`  Adversarial Tests    ⚠️   ${testSuite.tests.length} cases · ${highTests} high-severity`);
+  } else {
+    lines.push('  Adversarial Tests    ⏭️   Run generate-tests to check');
+  }
+
+  lines.push('  Database Health      ⏭️   Run scale-monitor to check');
 
   if (extras?.sessionViolations !== undefined) {
     lines.push('');
