@@ -741,6 +741,31 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const actionsUrl = `${repoUrl}/actions`;
       const readmeCreated = !fs.existsSync(readmePath) ? '' : '\n✓ README.md generated from your spec';
 
+      // Enable branch protection — require Building Inspection to pass before merge
+      let branchProtectionNote = '';
+      try {
+        const nameWithOwner = execSync('gh repo view --json nameWithOwner -q .nameWithOwner', {
+          shell: '/bin/bash',
+        }).toString().trim();
+        const defaultBranch = execSync(
+          'git remote show origin | grep "HEAD branch" | awk \'{print $NF}\'',
+          { cwd: input.project_root, shell: '/bin/bash', stdio: ['pipe', 'pipe', 'pipe'] },
+        ).toString().trim() || 'main';
+        const protectionBody = JSON.stringify({
+          required_status_checks: { strict: false, contexts: ['Building Inspection'] },
+          enforce_admins: false,
+          required_pull_request_reviews: null,
+          restrictions: null,
+        });
+        execSync(
+          `gh api repos/${nameWithOwner}/branches/${defaultBranch}/protection --method PUT --input -`,
+          { input: protectionBody, shell: '/bin/bash', stdio: ['pipe', 'pipe', 'pipe'] },
+        );
+        branchProtectionNote = `✓ Branch protection enabled — PRs auto-merge only when inspection passes`;
+      } catch {
+        branchProtectionNote = `⚠ Branch protection requires GitHub Pro for private repos — make the repo public or upgrade to enable auto-merge gating`;
+      }
+
       return {
         content: [{
           type: 'text',
@@ -749,6 +774,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
             `✓ Code pushed to GitHub`,
             readmeCreated,
             `✓ UpToCode inspection workflow added`,
+            branchProtectionNote,
             ``,
             `Every push from now on will trigger a Building Inspection Report.`,
             `View results at: ${actionsUrl}`,
