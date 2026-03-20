@@ -4,14 +4,16 @@
  *
  * Fires when Claude finishes a response.
  *
- * Always: auto-commits any changed files and pushes to GitHub if a remote
- * is configured (using `gh auth token` for HTTPS auth).
- *
- * If there was session log activity (violations caught or fixed): runs the
- * full local inspection and prints a plain-English report.
+ * Git workflow:
+ *   - If on main/master and there are uncommitted changes, creates a
+ *     session branch (claude/YYYY-MM-DD-HHmm) before committing.
+ *   - Pushes the branch and opens a PR to main if one doesn't exist.
+ *   - Subsequent sessions on the same branch update the same PR.
+ *   - Already-committed unpushed work on main is pushed to main directly
+ *     (preserves existing history before this feature was active).
  *
  * Exit codes:
- *   0 = clean, or informational report shown to user
+ *   0 = clean, or informational output shown to user
  *   2 = unresolved violations remain (Claude re-activates to fix them)
  */
 
@@ -37,7 +39,13 @@ interface CleanEntry {
 
 type LogEntry = ViolationEntry | CleanEntry;
 
-// ── Find project root (via manifest.json) ─────────────────────────────────────
+interface PushResult {
+  status: 'pushed' | 'up_to_date' | 'push_failed';
+  branch: string;
+  prUrl?: string;
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function findProjectRoot(): string | null {
   let dir = process.cwd();
@@ -50,8 +58,6 @@ function findProjectRoot(): string | null {
   return null;
 }
 
-// ── Session log helpers ───────────────────────────────────────────────────────
-
 function readSessionEntries(logDir: string, since: Date): LogEntry[] {
   const logPath = path.join(logDir, 'session.jsonl');
   if (!fs.existsSync(logPath)) return [];
@@ -61,71 +67,113 @@ function readSessionEntries(logDir: string, since: Date): LogEntry[] {
     .filter((e): e is LogEntry => e !== null && new Date(e.ts) > since);
 }
 
-// ── Git helpers ───────────────────────────────────────────────────────────────
-
-function getGitRemote(projectRoot: string): string | null {
-  try {
-    return execSync('git remote get-url origin', {
-      cwd: projectRoot,
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString().trim() || null;
-  } catch {
-    return null;
-  }
+function run(cmd: string, cwd: string): string {
+  return execSync(cmd, { cwd, shell: '/bin/bash', stdio: ['pipe', 'pipe', 'pipe'] }).toString().trim();
 }
 
-/** Returns a push URL with the gh token embedded for reliable HTTPS auth. */
+function getGitRemote(projectRoot: string): string | null {
+  try { return run('git remote get-url origin', projectRoot) || null; } catch { return null; }
+}
+
 function authedRemote(remote: string): string {
   if (!remote.startsWith('https://')) return remote;
   try {
-    const token = execSync('gh auth token', {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString().trim();
+    const token = run('gh auth token', process.cwd());
     if (token) return remote.replace('https://', `https://x-access-token:${token}@`);
-  } catch { /* gh not available — fall through */ }
+  } catch { /* gh not available */ }
   return remote;
 }
 
-function autoCommitAndPush(projectRoot: string): 'pushed' | 'up_to_date' | 'push_failed' {
+function currentBranch(projectRoot: string): string {
+  try { return run('git branch --show-current', projectRoot); } catch { return 'main'; }
+}
+
+function isMainBranch(branch: string): boolean {
+  return branch === 'main' || branch === 'master';
+}
+
+function aheadCount(projectRoot: string): number {
   try {
-    // Commit any uncommitted changes
-    const dirty = execSync('git status --porcelain', {
-      cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString().trim();
-
-    if (dirty) {
-      const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-      execSync(`git add -A && git commit -m "checkpoint: ${timestamp}"`, {
-        cwd: projectRoot, shell: '/bin/bash', stdio: 'pipe',
-      });
-    }
-
-    // Check if we're ahead of remote (catches already-committed but unpushed work)
-    let aheadCount = 0;
-    try {
-      aheadCount = parseInt(
-        execSync('git rev-list --count @{u}..HEAD', {
-          cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
-        }).toString().trim(),
-        10,
-      );
-    } catch {
-      // No upstream set or first push — assume push is needed if we committed
-      aheadCount = dirty ? 1 : 0;
-    }
-
-    if (aheadCount === 0) return 'up_to_date';
-
-    const remote = execSync('git remote get-url origin', {
-      cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
-    }).toString().trim();
-
-    execSync(`git push "${authedRemote(remote)}"`, {
-      cwd: projectRoot, shell: '/bin/bash', stdio: 'pipe',
-    });
-    return 'pushed';
+    return parseInt(run('git rev-list --count @{u}..HEAD', projectRoot), 10);
   } catch {
-    return 'push_failed';
+    return 1; // new branch with no upstream — assume needs pushing
+  }
+}
+
+function sessionBranchName(): string {
+  const now = new Date();
+  const date = now.toISOString().slice(0, 10);
+  const time = now.toTimeString().slice(0, 5).replace(':', '');
+  return `claude/${date}-${time}`;
+}
+
+function getOrCreatePr(projectRoot: string, branch: string, remote: string): string | undefined {
+  try {
+    // Check if PR already exists for this branch
+    const existing = run(`gh pr view "${branch}" --json url -q .url`, projectRoot);
+    if (existing) return existing;
+  } catch { /* no existing PR */ }
+
+  try {
+    const date = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const base = run('git remote show origin | grep "HEAD branch" | awk \'{print $NF}\'', projectRoot) || 'main';
+    const url = run(
+      `gh pr create --title "Session: ${date} ${time}" ` +
+      `--body "Automated checkpoint from UpToCode. The inspection report will be posted as a comment." ` +
+      `--base "${base}" --head "${branch}"`,
+      projectRoot,
+    );
+    return url || undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+// ── Core push logic ───────────────────────────────────────────────────────────
+
+function autoCommitAndPush(projectRoot: string, remote: string): PushResult {
+  try {
+    const dirty = run('git status --porcelain', projectRoot);
+    const branch = currentBranch(projectRoot);
+
+    if (isMainBranch(branch) && dirty) {
+      // New work on main — move it to a session branch
+      const sessionBranch = sessionBranchName();
+      run(`git checkout -b "${sessionBranch}"`, projectRoot);
+
+      const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      run(`git add -A && git commit -m "checkpoint: ${timestamp}"`, projectRoot);
+
+      run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
+
+      const prUrl = getOrCreatePr(projectRoot, sessionBranch, remote);
+      return { status: 'pushed', branch: sessionBranch, prUrl };
+    }
+
+    if (!isMainBranch(branch)) {
+      // Already on a session branch — commit if needed, then push
+      if (dirty) {
+        const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+        run(`git add -A && git commit -m "checkpoint: ${timestamp}"`, projectRoot);
+      }
+      const ahead = aheadCount(projectRoot);
+      if (ahead === 0) return { status: 'up_to_date', branch };
+
+      run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
+
+      const prUrl = getOrCreatePr(projectRoot, branch, remote);
+      return { status: 'pushed', branch, prUrl };
+    }
+
+    // On main with no uncommitted changes — push any unpushed commits directly
+    const ahead = aheadCount(projectRoot);
+    if (ahead === 0) return { status: 'up_to_date', branch };
+
+    run(`git push "${authedRemote(remote)}"`, projectRoot);
+    return { status: 'pushed', branch };
+  } catch {
+    return { status: 'push_failed', branch: currentBranch(projectRoot) };
   }
 }
 
@@ -135,22 +183,21 @@ function main() {
   const projectRoot = findProjectRoot();
   if (!projectRoot) process.exit(0);
 
-  // ── Auto-commit and push first — always, regardless of session activity ────
+  // ── Auto-commit and push — always runs regardless of session activity ──────
   const remote = getGitRemote(projectRoot);
-  let gitStatus: 'pushed' | 'no_remote' | 'push_failed' | 'up_to_date' = 'no_remote';
+  let pushResult: PushResult | null = null;
   if (remote) {
-    const result = autoCommitAndPush(projectRoot);
-    gitStatus = result;
+    pushResult = autoCommitAndPush(projectRoot, remote);
   }
 
-  // ── Load manifest (needed for inspection) ─────────────────────────────────
+  // ── Load manifest ──────────────────────────────────────────────────────────
   let manifest: Manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf-8'));
   } catch {
-    // No manifest — just print push status if relevant and exit
-    if (gitStatus === 'pushed') {
-      process.stdout.write('UpToCode: ✓ Saved to GitHub\n');
+    if (pushResult?.status === 'pushed') {
+      const pr = pushResult.prUrl ? ` · PR: ${pushResult.prUrl}` : '';
+      process.stdout.write(`UpToCode: ✓ Saved to GitHub${pr}\n`);
     }
     process.exit(0);
   }
@@ -166,15 +213,15 @@ function main() {
   const violationEntries = entries.filter((e): e is ViolationEntry => !('clean' in e));
   const cleanEntries = entries.filter((e): e is CleanEntry => 'clean' in e);
 
-  // If nothing was logged this session, print push status if relevant and exit
   if (entries.length === 0) {
-    if (gitStatus === 'pushed') {
-      process.stdout.write('UpToCode: ✓ Saved to GitHub\n');
+    if (pushResult?.status === 'pushed') {
+      const pr = pushResult.prUrl ? ` · PR: ${pushResult.prUrl}` : '';
+      process.stdout.write(`UpToCode: ✓ Saved to GitHub${pr}\n`);
     }
     process.exit(0);
   }
 
-  // ── Session had activity — run full inspection and show report ────────────
+  // ── Session had activity — run full inspection ────────────────────────────
   const allViolations = violationEntries.flatMap(e => e.violations);
   const flaggedFiles = new Set(violationEntries.map(e => e.file));
   const resolvedFiles = new Set(cleanEntries.map(e => e.file).filter(f => flaggedFiles.has(f)));
@@ -182,16 +229,21 @@ function main() {
 
   const inspectionResult = runInspection(manifest, projectRoot);
 
+  const gitStatus = !remote ? 'no_remote'
+    : pushResult?.status === 'pushed' ? 'pushed'
+    : pushResult?.status === 'push_failed' ? 'push_failed'
+    : 'pushed'; // up_to_date — already saved
+
   const report = renderInspectionReport(inspectionResult, {
     sessionViolations: allViolations.length,
     sessionFixed: resolvedFiles.size,
-    gitStatus: gitStatus === 'up_to_date' ? 'pushed' : gitStatus as 'pushed' | 'no_remote' | 'push_failed',
+    gitStatus,
     remote: remote ?? undefined,
+    prUrl: pushResult?.prUrl,
   });
 
   process.stdout.write(report);
 
-  // Update last-report timestamp
   try {
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
     fs.writeFileSync(lastReportPath, new Date().toISOString(), 'utf-8');

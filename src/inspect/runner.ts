@@ -70,6 +70,7 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
   sessionFixed?: number;
   gitStatus?: 'pushed' | 'no_remote' | 'push_failed';
   remote?: string;
+  prUrl?: string;
 }): string {
   const { violations, securityFindings, testSuite, filesChecked } = result;
   const highTests = testSuite.tests.filter(t => t.severity === 'HIGH').length;
@@ -102,8 +103,12 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
     lines.push(`  Session: ${caught} violation(s) caught · ${fixed} fixed`);
   }
 
-  if (extras?.gitStatus === 'pushed' && extras.remote) {
-    lines.push(`  ✓ Saved to GitHub · inspection running`);
+  if (extras?.gitStatus === 'pushed') {
+    if (extras.prUrl) {
+      lines.push(`  ✓ Saved to GitHub · PR: ${extras.prUrl}`);
+    } else {
+      lines.push('  ✓ Saved to GitHub');
+    }
   } else if (extras?.gitStatus === 'push_failed') {
     lines.push('  ⚠️  Could not push to GitHub — check your connection');
   } else if (extras?.gitStatus === 'no_remote') {
