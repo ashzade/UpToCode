@@ -8,6 +8,8 @@ Vibe coding with Claude is fast—unbelievably fast. But there is a **Verificati
 
 You don’t need to know what any of that means. UpToCode handles the engineering discipline. You handle the idea.
 
+The spec you build through that conversation becomes the single source of truth for your entire project — it drives the code enforcement, the test suite, the security checks, and the README that appears on your GitHub repository. Change the spec, and UpToCode updates everything downstream.
+
 It’s the difference between a project that looks good and a product that is **UpToCode**.
 
 ---
