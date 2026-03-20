@@ -73,7 +73,7 @@ Covers the full journey — UpToCode interviewing you, building the spec, Claude
 **You need:** [Node.js](https://nodejs.org) (v18 or later) and [Claude Code](https://claude.ai/code).
 
 ```bash
-git clone https://github.com/ashzade/uptocode
+git clone https://github.com/ashzade/UpToCode
 cd uptocode && ./setup.sh
 ```
 
