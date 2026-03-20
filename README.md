@@ -4,7 +4,9 @@
 
 When you build with Claude, code gets written fast. Really fast. But fast code isn't always *correct* code — Claude doesn't know your rules, your data boundaries, or what you actually meant when you described the feature. It just codes.
 
-Guardian fixes that. You tell Guardian what you're building in plain English — through a conversation, no technical knowledge required. Guardian turns that into a set of rules, then watches every file Claude touches and flags anything that doesn't match what you said you wanted.
+Guardian fixes that. You tell Guardian what you're building in plain English — through a conversation, no technical knowledge required. Guardian writes it all down as a spec, turns it into a set of rules, and watches every file Claude touches.
+
+Every new Claude session starts with amnesia. Guardian's spec is what you hand it instead of re-explaining everything from scratch. It's your product memory — what you're building, who can do what, what rules must hold, what states things move through.
 
 It's the difference between vibe coding a project and shipping a product.
 
@@ -40,13 +42,15 @@ Once your app is running, Guardian connects to your database and checks whether 
 
 ```
 Guardian interviews you           →  Asks plain-English questions about what you're building
-Guardian builds your spec         →  Turns your answers into an enforceable ruleset
+Guardian writes the spec          →  Your product memory — rules, data, states, actors, all in one place
+New Claude session?               →  Hand it the spec — no re-explaining, no context lost
 You vibe code with Claude         →  Claude writes the code fast
 Guardian watches every edit       →  Flags anything that breaks the rules instantly
 Claude fixes it in the same turn  →  The code stays honest as you go
 ```
 
 By the time you're ready to ship, you have:
+- A single document that describes your product completely
 - Code that matches what you designed
 - A test suite that tries to break it
 - Confirmation that your security boundaries hold
