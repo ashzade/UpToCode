@@ -2,25 +2,22 @@
 /**
  * UpToCode Stop hook — building inspection report + auto-save.
  *
- * Fires when Claude finishes a response. Runs the full local inspection
- * (logic, security, tests) and prints a plain-English report.
+ * Fires when Claude finishes a response.
  *
- * If the project has a GitHub remote configured, it auto-commits any
- * changed files and pushes — the GitHub Action then posts the report
- * to the commit or PR automatically.
+ * Always: auto-commits any changed files and pushes to GitHub if a remote
+ * is configured (using `gh auth token` for HTTPS auth).
  *
- * If no remote exists, the local report is the full output, and UpToCode
- * suggests setting GitHub up.
+ * If there was session log activity (violations caught or fixed): runs the
+ * full local inspection and prints a plain-English report.
  *
  * Exit codes:
- *   0 = all clear, or informational report shown to user
+ *   0 = clean, or informational report shown to user
  *   2 = unresolved violations remain (Claude re-activates to fix them)
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
-import { parse } from './src/index';
 import { runInspection, renderInspectionReport } from './src/inspect/runner';
 import { Manifest } from './src/types';
 
@@ -77,18 +74,55 @@ function getGitRemote(projectRoot: string): string | null {
   }
 }
 
-function autoCommitAndPush(projectRoot: string): 'pushed' | 'nothing_to_commit' | 'push_failed' {
+/** Returns a push URL with the gh token embedded for reliable HTTPS auth. */
+function authedRemote(remote: string): string {
+  if (!remote.startsWith('https://')) return remote;
   try {
-    const status = execSync('git status --porcelain', { cwd: projectRoot }).toString().trim();
-    if (!status) return 'nothing_to_commit';
+    const token = execSync('gh auth token', {
+      stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString().trim();
+    if (token) return remote.replace('https://', `https://x-access-token:${token}@`);
+  } catch { /* gh not available — fall through */ }
+  return remote;
+}
 
-    const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
-    execSync(`git add -A && git commit -m "checkpoint: ${timestamp}"`, {
-      cwd: projectRoot,
-      shell: '/bin/bash',
-      stdio: 'pipe',
+function autoCommitAndPush(projectRoot: string): 'pushed' | 'up_to_date' | 'push_failed' {
+  try {
+    // Commit any uncommitted changes
+    const dirty = execSync('git status --porcelain', {
+      cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString().trim();
+
+    if (dirty) {
+      const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
+      execSync(`git add -A && git commit -m "checkpoint: ${timestamp}"`, {
+        cwd: projectRoot, shell: '/bin/bash', stdio: 'pipe',
+      });
+    }
+
+    // Check if we're ahead of remote (catches already-committed but unpushed work)
+    let aheadCount = 0;
+    try {
+      aheadCount = parseInt(
+        execSync('git rev-list --count @{u}..HEAD', {
+          cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
+        }).toString().trim(),
+        10,
+      );
+    } catch {
+      // No upstream set or first push — assume push is needed if we committed
+      aheadCount = dirty ? 1 : 0;
+    }
+
+    if (aheadCount === 0) return 'up_to_date';
+
+    const remote = execSync('git remote get-url origin', {
+      cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString().trim();
+
+    execSync(`git push "${authedRemote(remote)}"`, {
+      cwd: projectRoot, shell: '/bin/bash', stdio: 'pipe',
     });
-    execSync('git push', { cwd: projectRoot, stdio: 'pipe' });
     return 'pushed';
   } catch {
     return 'push_failed';
@@ -101,11 +135,23 @@ function main() {
   const projectRoot = findProjectRoot();
   if (!projectRoot) process.exit(0);
 
-  // ── Load manifest ──────────────────────────────────────────────────────────
+  // ── Auto-commit and push first — always, regardless of session activity ────
+  const remote = getGitRemote(projectRoot);
+  let gitStatus: 'pushed' | 'no_remote' | 'push_failed' | 'up_to_date' = 'no_remote';
+  if (remote) {
+    const result = autoCommitAndPush(projectRoot);
+    gitStatus = result;
+  }
+
+  // ── Load manifest (needed for inspection) ─────────────────────────────────
   let manifest: Manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf-8'));
   } catch {
+    // No manifest — just print push status if relevant and exit
+    if (gitStatus === 'pushed') {
+      process.stdout.write('UpToCode: ✓ Saved to GitHub\n');
+    }
     process.exit(0);
   }
 
@@ -120,32 +166,26 @@ function main() {
   const violationEntries = entries.filter((e): e is ViolationEntry => !('clean' in e));
   const cleanEntries = entries.filter((e): e is CleanEntry => 'clean' in e);
 
-  // Only show the report if something happened this session
-  if (entries.length === 0) process.exit(0);
+  // If nothing was logged this session, print push status if relevant and exit
+  if (entries.length === 0) {
+    if (gitStatus === 'pushed') {
+      process.stdout.write('UpToCode: ✓ Saved to GitHub\n');
+    }
+    process.exit(0);
+  }
 
+  // ── Session had activity — run full inspection and show report ────────────
   const allViolations = violationEntries.flatMap(e => e.violations);
   const flaggedFiles = new Set(violationEntries.map(e => e.file));
   const resolvedFiles = new Set(cleanEntries.map(e => e.file).filter(f => flaggedFiles.has(f)));
   const openFiles = [...flaggedFiles].filter(f => !resolvedFiles.has(f));
 
-  // ── Run full inspection ────────────────────────────────────────────────────
   const inspectionResult = runInspection(manifest, projectRoot);
 
-  // ── Auto-commit and push if remote exists ──────────────────────────────────
-  const remote = getGitRemote(projectRoot);
-  let gitStatus: 'pushed' | 'no_remote' | 'push_failed' = 'no_remote';
-  if (remote) {
-    const pushResult = autoCommitAndPush(projectRoot);
-    gitStatus = pushResult === 'pushed' ? 'pushed'
-      : pushResult === 'push_failed' ? 'push_failed'
-      : 'no_remote'; // nothing to commit — treat as no-op
-  }
-
-  // ── Render and print the report ────────────────────────────────────────────
   const report = renderInspectionReport(inspectionResult, {
     sessionViolations: allViolations.length,
     sessionFixed: resolvedFiles.size,
-    gitStatus,
+    gitStatus: gitStatus === 'up_to_date' ? 'pushed' : gitStatus as 'pushed' | 'no_remote' | 'push_failed',
     remote: remote ?? undefined,
   });
 
@@ -157,7 +197,6 @@ function main() {
     fs.writeFileSync(lastReportPath, new Date().toISOString(), 'utf-8');
   } catch { /* non-fatal */ }
 
-  // Exit 2 if there are open violations — Claude re-activates to resolve them
   process.exit(openFiles.length > 0 ? 2 : 0);
 }
 
