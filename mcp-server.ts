@@ -126,7 +126,7 @@ function topLevelDiffSummary(a: Record<string, unknown>, b: Record<string, unkno
 // ── MCP Server ──────────────────────────────────────────────────
 
 const server = new Server(
-  { name: 'guardian', version: '0.1.0' },
+  { name: 'uptocode', version: '0.1.0' },
   { capabilities: { tools: {} } }
 );
 

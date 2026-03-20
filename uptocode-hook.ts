@@ -1,6 +1,6 @@
 #!/usr/bin/env ts-node
 /**
- * Guardian PostToolUse hook.
+ * UpToCode PostToolUse hook.
  *
  * Fires after every Edit/Write. If the changed file is a code file (.py/.ts/.js),
  * runs contract-diff against the nearest manifest.json and reports violations back
@@ -83,7 +83,7 @@ async function main() {
       process.exit(0);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      process.stdout.write(`Guardian: requirements.md parse error — ${msg}\n`);
+      process.stdout.write(`UpToCode: requirements.md parse error — ${msg}\n`);
       process.exit(2);
     }
   }
@@ -93,7 +93,7 @@ async function main() {
   if (!fs.existsSync(filePath)) process.exit(0);
 
   const manifestPath = findManifest(path.dirname(filePath));
-  if (!manifestPath) process.exit(0); // No manifest in tree — not a guardian project
+  if (!manifestPath) process.exit(0); // No manifest in tree — not an uptocode project
 
   let manifest: Manifest;
   try {
@@ -113,7 +113,7 @@ async function main() {
 
   // Format violations for Claude
   const lines: string[] = [
-    `Guardian: ${result.violations.length} rule violation(s) in ${path.basename(filePath)}`,
+    `UpToCode: ${result.violations.length} rule violation(s) in ${path.basename(filePath)}`,
   ];
   for (const v of result.violations) {
     const loc = v.location ? `:${v.location.line}` : '';
