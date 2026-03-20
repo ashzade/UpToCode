@@ -3,6 +3,9 @@
 # Runs the UpToCode Building Inspection on every push and pull request.
 # Results appear in the GitHub Actions summary tab (always) and as a
 # PR comment (when a pull request is open).
+#
+# Adversarial tests run nightly at 2am UTC and can be triggered manually
+# from the Actions tab at any time.
 
 name: UpToCode Inspection
 
@@ -11,14 +14,17 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
+  schedule:
+    - cron: '0 2 * * *'   # nightly at 2am UTC
+  workflow_dispatch:        # manual trigger from Actions tab
 
 jobs:
   inspect:
     name: Building Inspection
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write  # post PR comments
-      statuses: write       # post commit status
+      pull-requests: write
+      statuses: write
 
     steps:
       - uses: actions/checkout@v4
@@ -26,3 +32,37 @@ jobs:
       - uses: ashzade/UpToCode/.github/actions/inspect@main
         with:
           project_root: ${{ github.workspace }}
+
+  generate-tests:
+    name: Adversarial Tests
+    runs-on: ubuntu-latest
+    # Only run on schedule or manual trigger, not every push/PR
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install UpToCode
+        run: |
+          git clone --depth 1 https://github.com/ashzade/UpToCode "$RUNNER_TEMP/uptocode"
+          cd "$RUNNER_TEMP/uptocode" && npm ci --silent
+
+      - name: Generate adversarial tests
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd "$RUNNER_TEMP/uptocode"
+          node node_modules/.bin/ts-node --transpile-only ci/generate-tests.ts
+
+      - name: Upload adversarial-tests.md
+        uses: actions/upload-artifact@v4
+        with:
+          name: adversarial-tests
+          path: ${{ github.workspace }}/adversarial-tests.md
+          if-no-files-found: ignore

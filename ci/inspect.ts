@@ -1,8 +1,9 @@
 /**
  * UpToCode CI inspection script.
  *
- * Runs the full local inspection (logic, security, adversarial tests) and
+ * Runs fast local inspection (logic enforcement + security audit) and
  * writes a markdown report to .uptocode-report.md for the GitHub Action.
+ * Adversarial test generation runs separately on a nightly schedule.
  *
  * Usage:
  *   PROJECT_ROOT=/path/to/project ts-node --transpile-only ci/inspect.ts
@@ -15,7 +16,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { runInspection } from '../src/inspect/runner';
-import { renderMarkdown } from '../src/adversarial/test-generator';
 import { Manifest } from '../src/types';
 
 async function main() {
@@ -36,11 +36,10 @@ async function main() {
   }
 
   const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-  const { violations, securityFindings, testSuite, filesChecked } = runInspection(manifest, projectRoot);
+  const { violations, securityFindings, filesChecked } = runInspection(manifest, projectRoot, { skipTests: true });
 
   const highViolations = violations.filter(v => v.severity === 'HIGH' || v.severity === 'CRITICAL');
   const highFindings = securityFindings.filter(f => f.severity === 'HIGH');
-  const highTests = testSuite.tests.filter(t => t.severity === 'HIGH').length;
   const hasCritical = highViolations.length > 0 || highFindings.length > 0;
 
   // ── Build report table ────────────────────────────────────────────────────
@@ -63,12 +62,7 @@ async function main() {
       : securityFindings.slice(0, 2).map(f => f.description).join('; ') + (securityFindings.length > 2 ? ` (+${securityFindings.length - 2} more)` : ''),
   );
 
-  const testRow = row(
-    'Adversarial Tests',
-    `⚠️ ${testSuite.tests.length} cases generated`,
-    `${highTests} high-severity · see adversarial-tests.md`,
-  );
-
+  const testRow = row('Adversarial Tests', '⏭️ Nightly', 'Runs on schedule · trigger manually to run now');
   const dbRow = row('Database Health', '⏭️ Skipped', 'Live database check runs locally only');
 
   const passed = violations.length === 0 && securityFindings.length === 0;
@@ -99,11 +93,6 @@ async function main() {
 
   sections.push('', '*Inspected by [UpToCode](https://github.com/ashzade/UpToCode)*');
   fs.writeFileSync(reportPath, sections.join('\n'));
-
-  // Write adversarial tests file for review
-  if (testSuite.tests.length > 0) {
-    fs.writeFileSync(path.join(projectRoot, 'adversarial-tests.md'), renderMarkdown(testSuite));
-  }
 
   process.exit(hasCritical ? 1 : 0);
 }
