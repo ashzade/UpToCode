@@ -23,6 +23,7 @@ jobs:
     name: Building Inspection
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       pull-requests: write
       statuses: write
 
