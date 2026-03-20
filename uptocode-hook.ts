@@ -20,6 +20,19 @@ import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
 
+// ── Session logging ───────────────────────────────────────────────────────────
+
+function now(): string { return new Date().toISOString(); }
+function rel(root: string, file: string): string { return path.relative(root, file); }
+
+function appendSessionLog(projectRoot: string, entry: object): void {
+  try {
+    const dir = path.join(projectRoot, '.uptocode');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, 'session.jsonl'), JSON.stringify(entry) + '\n', 'utf-8');
+  } catch { /* non-fatal */ }
+}
+
 // ── Read hook input from stdin ───────────────────────────────────────────────
 
 function readStdin(): string {
@@ -108,8 +121,24 @@ async function main() {
   }];
 
   const result = contractDiff(manifest, files);
+  const projectRoot = path.dirname(manifestPath);
 
-  if (result.violations.length === 0) process.exit(0);
+  if (result.violations.length === 0) {
+    appendSessionLog(projectRoot, { ts: now(), file: rel(projectRoot, filePath), clean: true });
+    process.exit(0);
+  }
+
+  // Log violations for session report
+  appendSessionLog(projectRoot, {
+    ts: now(),
+    file: rel(projectRoot, filePath),
+    violations: result.violations.map(v => ({
+      ruleId: v.ruleId,
+      severity: v.severity,
+      title: v.title,
+      line: v.location?.line,
+    })),
+  });
 
   // Format violations for Claude
   const lines: string[] = [

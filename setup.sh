@@ -33,8 +33,9 @@ cat <<EOF
 EOF
 
 echo ""
-echo "2. Add the live hook to .claude/settings.json in your project:"
-echo "   (This makes Claude fix violations automatically as it codes)"
+echo "2. Add the live hooks to .claude/settings.json in your project:"
+echo "   PostToolUse: checks every file Claude edits, flags violations in real time"
+echo "   Stop:        prints a session summary when Claude finishes a response"
 echo ""
 cat <<EOF
 {
@@ -49,18 +50,35 @@ cat <<EOF
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $UPTOCODE_DIR/node_modules/.bin/ts-node --transpile-only $UPTOCODE_DIR/report-hook.ts"
+          }
+        ]
+      }
     ]
   }
 }
 EOF
 
 echo ""
-echo "3. Write requirements.md in your project, then run:"
-echo "   → compile-spec   (parse requirements.md → manifest.json)"
-echo "   → contract-diff  (check code against spec)"
-echo "   → generate-tests (generate adversarial test cases)"
-echo "   → security-audit (find unguarded writes)"
-echo "   → scale-monitor  (query live DB health)"
+echo "3. (Optional) Add the PR inspection workflow to your project:"
+echo "   Copy ci/example-workflow.yml to .github/workflows/uptocode.yml"
+echo "   This posts a Building Inspection Report on every pull request."
+echo ""
+
+echo "4. Add .uptocode/ to your .gitignore (session logs, not for committing):"
+echo ""
+echo "   echo '.uptocode/' >> .gitignore"
+echo ""
+
+echo "Once set up, start with:"
+echo "   → 'Interview me to build my spec'  (create your spec through conversation)"
+echo "   → 'Run generate-spec for this project'  (if you already have code)"
 echo ""
 echo "Set ANTHROPIC_API_KEY in your environment to use generate-spec."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

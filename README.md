@@ -17,6 +17,8 @@ You don't need to be a senior engineer or know the "right" professional processe
 * **No Expert Knowledge Needed**: You don't have to know how to set up testing or security—UpToCode helps you fill in those gaps as you go.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track.
+* **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
+* **PR Inspection Reports**: Push to GitHub and UpToCode automatically posts a Building Inspection Report on the pull request — logic violations, security findings, and adversarial test coverage, all in one table.
 * **Product-Ready by Default**: Your code stays honest and professional through every turn, moving you from a "vibe" to a hardened product with zero extra effort.
 
 ---
@@ -79,10 +81,27 @@ UpToCode asks plain-English questions to fill in three key areas:
 | What you say | What happens |
 | :--- | :--- |
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
-| *"Run vibe compile"* | Turns your Markdown into a machine-readable safety net. |
-| *"Run contract-diff"* | Makes sure your code actually follows your Playbook. |
-| *"Run generate-tests"* | Finds the hidden ways your app could break. |
-| *"Run security-audit"* | Plugs holes in your "Zoning & Permits." |
+| *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net. |
+| *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
+| *"Run generate-tests for this project"* | Finds the hidden ways your app could break. |
+| *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits." |
+| *"Run scale-monitor for this project"* | Checks your live database for architectural drift. |
+| *"Run generate-spec for this project"* | Reverse-engineers a starter Playbook from existing code. |
+
+---
+
+## 🔁 GitHub PR Inspection
+
+Copy `ci/example-workflow.yml` to `.github/workflows/uptocode.yml` in your project. On every pull request, UpToCode will post a comment like this:
+
+| Check | Result | Finding |
+|---|---|---|
+| **Logic Enforcement** | ✅ Pass | 14 files checked, all clear |
+| **Security Audit** | ❌ 1 issue | Unguarded write to `Signup` in routes/admin.py:45 |
+| **Adversarial Tests** | ⚠️ 6 cases generated | 2 high-severity · see adversarial-tests.md |
+| **Database Health** | ⏭️ Skipped | Live database check runs locally only |
+
+High or critical findings fail the check — the PR can't be merged until they're resolved.
 
 ---
 
@@ -91,5 +110,5 @@ UpToCode asks plain-English questions to fill in three key areas:
 **Requirements:** [Node.js](https://nodejs.org) (v18+) and [Claude Code](https://claude.ai/code).
 
 ```bash
-git clone [https://github.com/ashzade/uptocode](https://github.com/ashzade/uptocode)
-cd uptocode && ./setup.sh
+git clone https://github.com/ashzade/UpToCode
+cd UpToCode && ./setup.sh
