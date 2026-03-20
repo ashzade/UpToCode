@@ -2,15 +2,15 @@
 
 **The Building Inspector for your AI-generated code.**
 
-Vibe coding with Claude is fast—unbelievably fast. But there is a **Verification Gap** between the "sketch" the AI draws and the "building" you actually need to inhabit. Most AI tools are like fast-talking interns: they’re great at starting tasks, but they don't always know where the safety boundaries are, and often, you might not know them either. 
+Vibe coding with Claude is fast—unbelievably fast. But there is a **Verification Gap** between the "sketch" the AI draws and the "building" you actually need to inhabit. Most AI tools are like fast-talking interns: they're great at starting tasks, but they don't always know where the safety boundaries are, and often, you might not know them either.
 
-**UpToCode** is your project’s **Building Inspector**. It doesn’t just check the code — it runs the entire engineering operation alongside you. It interviews you to turn your ideas into a **Master Playbook**, enforces every rule as Claude builds, sets up your GitHub repository, manages your commit history, and posts inspection reports on every pull request.
+**UpToCode** is your project's **Building Inspector**. It doesn't just check the code — it runs the entire engineering operation alongside you. It interviews you to turn your ideas into a **Master Playbook**, enforces every rule as Claude builds, sets up your GitHub repository, manages your commit history, and posts inspection reports on every pull request.
 
-You don’t need to know what any of that means. UpToCode handles the engineering discipline. You handle the idea.
+You don't need to know what any of that means. UpToCode handles the engineering discipline. You handle the idea.
 
 The spec you build through that conversation becomes the single source of truth for your entire project — it drives the code enforcement, the test suite, the security checks, and the README that appears on your GitHub repository. Change the spec, and UpToCode updates everything downstream.
 
-It’s the difference between a project that looks good and a product that is **UpToCode**.
+It's the difference between a project that looks good and a product that is **UpToCode**.
 
 ---
 
@@ -23,7 +23,7 @@ You don't need to be a senior engineer or know the "right" professional processe
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
 * **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
-* **PR Inspection Reports**: Every pull request gets a Building Inspection Report posted automatically — logic violations, security findings, and adversarial test coverage, all in one table. High-severity issues block the merge until they're resolved.
+* **Automatic PRs & Auto-Merge**: Every session creates a pull request. When the inspection passes, it merges automatically. When it doesn't, you're told immediately — right in your terminal.
 * **Product-Ready by Default**: Your code stays honest and professional through every turn, moving you from a "vibe" to a hardened product with zero extra effort.
 
 ---
@@ -86,7 +86,7 @@ UpToCode asks plain-English questions to fill in three key areas:
 | What you say | What happens |
 | :--- | :--- |
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
-| *"Help me set up GitHub for this project"* | Creates your repo, generates a README, pushes your code, and sets up the inspection workflow. |
+| *"Help me set up GitHub for this project"* | Creates your repo, generates a README, pushes your code, sets up the inspection workflow, and enables branch protection. |
 | *"Generate a README for my project"* | Writes a plain-English README.md from your spec. |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
@@ -111,24 +111,29 @@ UpToCode will:
 2. Generate a README for your project from your spec
 3. Push all your code
 4. Install the inspection workflow
-5. Auto-save your progress to GitHub at the end of every session
+5. Enable branch protection — PRs only merge when the inspection passes
+6. Auto-save your progress to GitHub at the end of every session
 
 No git commands. No configuration. One message.
 
 ### What happens automatically after that
 
-**Every session:** UpToCode commits your work and pushes it to GitHub when Claude finishes. Your progress is always saved and tracked.
+**Every session:** UpToCode commits your work to a session branch (`claude/YYYY-MM-DD-HHmm`) and opens a pull request to main. Your progress is always saved and tracked.
 
-**Every push:** A Building Inspection Report runs automatically and appears in your GitHub Actions tab.
+**Every push:** A Building Inspection Report runs automatically in GitHub Actions — logic enforcement and security audit — and posts as a comment on the PR.
 
-**Every pull request:** UpToCode posts the report as a comment. High-severity findings block the merge until resolved — the same gate professional engineering teams use.
+**When the inspection passes:** The PR merges automatically. You don't have to touch GitHub.
 
-| Check | Result | Finding |
+**When the inspection fails:** UpToCode tells you immediately in your terminal at the end of the next response — including a direct link to the blocked PR. You never have to check GitHub to know something needs fixing.
+
+**Nightly:** Adversarial test cases are generated from your spec and uploaded as a report. You can also trigger this manually from the GitHub Actions tab at any time.
+
+| Check | When | Result |
 |---|---|---|
-| **Logic Enforcement** | ✅ Pass | 14 files checked, all clear |
-| **Security Audit** | ❌ 1 issue | Unguarded write to `Signup` in routes/admin.py:45 |
-| **Adversarial Tests** | ⚠️ 6 cases generated | 2 high-severity · see adversarial-tests.md |
-| **Database Health** | ⏭️ Skipped | Live database check runs locally only |
+| **Logic Enforcement** | Every push | ✅ Pass / ❌ Violations block merge |
+| **Security Audit** | Every push | ✅ Pass / ❌ Findings block merge |
+| **Adversarial Tests** | Nightly + on demand | ⚠️ Cases generated for review |
+| **Database Health** | On demand | Run `scale-monitor` locally |
 
 ### Why this matters
 
@@ -143,3 +148,4 @@ A commit history, pull requests, and CI checks aren't bureaucracy — they're th
 ```bash
 git clone https://github.com/ashzade/UpToCode
 cd UpToCode && ./setup.sh
+```
