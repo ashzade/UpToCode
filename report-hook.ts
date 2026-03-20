@@ -130,6 +130,12 @@ function getOrCreatePr(projectRoot: string, branch: string, remote: string): str
   }
 }
 
+function enableAutoMerge(projectRoot: string, branch: string): void {
+  try {
+    run(`gh pr merge "${branch}" --auto --squash`, projectRoot);
+  } catch { /* auto-merge not available — branch protection may not be enabled */ }
+}
+
 // ── Core push logic ───────────────────────────────────────────────────────────
 
 function autoCommitAndPush(projectRoot: string, remote: string): PushResult {
@@ -243,6 +249,15 @@ function main() {
   });
 
   process.stdout.write(report);
+
+  // Auto-merge PR if inspection is clean and we have a PR open
+  if (pushResult?.prUrl && pushResult.branch && openFiles.length === 0) {
+    const hasCritical = inspectionResult.violations.some(v => v.severity === 'HIGH' || v.severity === 'CRITICAL')
+      || inspectionResult.securityFindings.some(f => f.severity === 'HIGH');
+    if (!hasCritical) {
+      enableAutoMerge(projectRoot, pushResult.branch);
+    }
+  }
 
   try {
     if (!fs.existsSync(logDir)) fs.mkdirSync(logDir, { recursive: true });
