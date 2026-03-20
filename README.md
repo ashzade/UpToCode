@@ -84,7 +84,8 @@ UpToCode asks plain-English questions to fill in three key areas:
 | What you say | What happens |
 | :--- | :--- |
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
-| *"Help me set up GitHub for this project"* | Creates your repo, pushes your code, and sets up the inspection workflow. |
+| *"Help me set up GitHub for this project"* | Creates your repo, generates a README, pushes your code, and sets up the inspection workflow. |
+| *"Generate a README for my project"* | Writes a plain-English README.md from your spec. |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
 | *"Run generate-tests for this project"* | Finds the hidden ways your app could break. |

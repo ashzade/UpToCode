@@ -17,6 +17,7 @@ import { generateTests, renderMarkdown } from './src/adversarial/test-generator'
 import { securityAudit, renderSecurityReport } from './src/security/access-auditor';
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
+import { generateProjectReadme } from './src/interview/readme-generator';
 
 // ── Schema definitions ──────────────────────────────────────────
 
@@ -87,6 +88,10 @@ const SetupGithubInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory'),
   repo_name: z.string().describe('Name for the GitHub repository (e.g. "my-app")'),
   private: z.boolean().optional().describe('Make the repository private. Defaults to false (public).'),
+});
+
+const GenerateReadmeInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory containing requirements.md'),
 });
 
 const GenerateSpecInput = z.object({
@@ -175,6 +180,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             output_path: { type: 'string' },
           },
           required: ['project_root', 'what', 'users', 'main_thing', 'fields', 'states', 'actions', 'rules', 'external', 'env_vars'],
+        },
+      },
+      {
+        name: 'generate-readme',
+        description:
+          'Generates a plain-English README.md for the project from its requirements.md spec. Call this when the user asks for a README, or when setting up a project that does not have one.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory containing requirements.md' },
+          },
+          required: ['project_root'],
         },
       },
       {
@@ -647,14 +664,48 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return { content: [{ type: 'text', text }] };
     }
 
+    // ── generate-readme ───────────────────────────────────────
+    if (name === 'generate-readme') {
+      const input = GenerateReadmeInput.parse(args);
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('ANTHROPIC_API_KEY environment variable not set');
+
+      const requirementsPath = path.join(input.project_root, 'requirements.md');
+      if (!fs.existsSync(requirementsPath)) {
+        throw new Error('No requirements.md found. Run "Interview me to build my spec" first.');
+      }
+
+      const requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+      const projectName = path.basename(input.project_root);
+      const readme = await generateProjectReadme(requirementsContent, projectName, apiKey);
+
+      const readmePath = path.join(input.project_root, 'README.md');
+      fs.writeFileSync(readmePath, readme, 'utf-8');
+
+      return {
+        content: [{ type: 'text', text: `✓ README.md written to ${readmePath}` }],
+      };
+    }
+
     // ── setup-github ──────────────────────────────────────────
     if (name === 'setup-github') {
       const input = SetupGithubInput.parse(args);
+      const apiKey = process.env.ANTHROPIC_API_KEY;
       const { execSync } = await import('child_process');
       const visibility = input.private ? '--private' : '--public';
       const workflowDir = path.join(input.project_root, '.github', 'workflows');
       const workflowDest = path.join(workflowDir, 'uptocode.yml');
       const workflowSrc = path.join(__dirname, 'ci', 'example-workflow.yml');
+
+      // Generate README if one doesn't exist
+      const readmePath = path.join(input.project_root, 'README.md');
+      const requirementsPath = path.join(input.project_root, 'requirements.md');
+      if (!fs.existsSync(readmePath) && fs.existsSync(requirementsPath) && apiKey) {
+        const requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+        const projectName = path.basename(input.project_root);
+        const readme = await generateProjectReadme(requirementsContent, projectName, apiKey);
+        fs.writeFileSync(readmePath, readme, 'utf-8');
+      }
 
       // Ensure git is initialised
       if (!fs.existsSync(path.join(input.project_root, '.git'))) {
@@ -678,6 +729,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const repoUrl = execSync('gh repo view --json url -q .url', { shell: '/bin/bash' }).toString().trim();
       const actionsUrl = `${repoUrl}/actions`;
+      const readmeCreated = !fs.existsSync(readmePath) ? '' : '\n✓ README.md generated from your spec';
 
       return {
         content: [{
@@ -685,13 +737,14 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
           text: [
             `✓ GitHub repository created: ${repoUrl}`,
             `✓ Code pushed to GitHub`,
+            readmeCreated,
             `✓ UpToCode inspection workflow added`,
             ``,
             `Every push from now on will trigger a Building Inspection Report.`,
             `View results at: ${actionsUrl}`,
             ``,
             `The UpToCode Stop hook will also auto-commit and push at the end of each session.`,
-          ].join('\n'),
+          ].filter(Boolean).join('\n'),
         }],
       };
     }
