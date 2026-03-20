@@ -4,7 +4,9 @@
 
 Vibe coding with Claude is fast—unbelievably fast. But there is a **Verification Gap** between the "sketch" the AI draws and the "building" you actually need to inhabit. Most AI tools are like fast-talking interns: they’re great at starting tasks, but they don't always know where the safety boundaries are, and often, you might not know them either. 
 
-**UpToCode** is your project's **Building Inspector**. It doesn't just write code; it helps you figure out the rules you didn't even know you needed. It interviews you to turn your ideas into a **Master Playbook**, creates an **Automated Safety Net**, and ensures that every line of code the AI writes is safe, secure, and structurally sound before a single customer walks through the door.
+**UpToCode** is your project’s **Building Inspector**. It doesn’t just check the code — it runs the entire engineering operation alongside you. It interviews you to turn your ideas into a **Master Playbook**, enforces every rule as Claude builds, sets up your GitHub repository, manages your commit history, and posts inspection reports on every pull request.
+
+You don’t need to know what any of that means. UpToCode handles the engineering discipline. You handle the idea.
 
 It’s the difference between a project that looks good and a product that is **UpToCode**.
 
@@ -14,11 +16,12 @@ It’s the difference between a project that looks good and a product that is **
 
 You don't need to be a senior engineer or know the "right" professional processes to ship a great product. UpToCode is a silent supervisor working in the background that handles the technical heavy lifting for you.
 
-* **No Expert Knowledge Needed**: You don't have to know how to set up testing or security—UpToCode helps you fill in those gaps as you go.
+* **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
-* **PR Inspection Reports**: Push to GitHub and UpToCode automatically posts a Building Inspection Report on the pull request — logic violations, security findings, and adversarial test coverage, all in one table.
+* **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
+* **PR Inspection Reports**: Every pull request gets a Building Inspection Report posted automatically — logic violations, security findings, and adversarial test coverage, all in one table. High-severity issues block the merge until they're resolved.
 * **Product-Ready by Default**: Your code stays honest and professional through every turn, moving you from a "vibe" to a hardened product with zero extra effort.
 
 ---
@@ -81,6 +84,7 @@ UpToCode asks plain-English questions to fill in three key areas:
 | What you say | What happens |
 | :--- | :--- |
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
+| *"Help me set up GitHub for this project"* | Creates your repo, pushes your code, and sets up the inspection workflow. |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
 | *"Run generate-tests for this project"* | Finds the hidden ways your app could break. |
@@ -90,9 +94,30 @@ UpToCode asks plain-English questions to fill in three key areas:
 
 ---
 
-## 🔁 GitHub PR Inspection
+## 🔁 GitHub: From Zero to Professional Workflow
 
-Copy `ci/example-workflow.yml` to `.github/workflows/uptocode.yml` in your project. On every pull request, UpToCode will post a comment like this:
+Most vibe coders have never touched GitHub. UpToCode sets it all up for you and runs it in the background — you just keep building.
+
+### Setting up GitHub
+
+After your spec is created, say:
+> *"Help me set up GitHub for this project"*
+
+UpToCode will:
+1. Create a GitHub repository under your account
+2. Push all your code
+3. Install the inspection workflow
+4. Auto-save your progress to GitHub at the end of every session
+
+No git commands. No configuration. One message.
+
+### What happens automatically after that
+
+**Every session:** UpToCode commits your work and pushes it to GitHub when Claude finishes. Your progress is always saved and tracked.
+
+**Every push:** A Building Inspection Report runs automatically and appears in your GitHub Actions tab.
+
+**Every pull request:** UpToCode posts the report as a comment. High-severity findings block the merge until resolved — the same gate professional engineering teams use.
 
 | Check | Result | Finding |
 |---|---|---|
@@ -101,7 +126,9 @@ Copy `ci/example-workflow.yml` to `.github/workflows/uptocode.yml` in your proje
 | **Adversarial Tests** | ⚠️ 6 cases generated | 2 high-severity · see adversarial-tests.md |
 | **Database Health** | ⏭️ Skipped | Live database check runs locally only |
 
-High or critical findings fail the check — the PR can't be merged until they're resolved.
+### Why this matters
+
+A commit history, pull requests, and CI checks aren't bureaucracy — they're the record of your product's evolution and the safety net that stops broken code from reaching users. Senior engineers build this way by default. UpToCode gives you the same workflow without needing to understand how any of it works.
 
 ---
 
