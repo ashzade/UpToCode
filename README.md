@@ -1,136 +1,92 @@
 # UpToCode
 
-**The code inspector for AI-built apps.**
+**The Building Inspector for your AI-generated code.**
 
-When you build with Claude, code goes up fast. Really fast. It's like a construction project with no foreman — walls go up without anyone checking the load-bearing requirements, wiring gets run before anyone confirms the safety standards, and by the time you're done it looks like a building. Whether it'll hold is a different question.
+Vibe coding with Claude is fast—unbelievably fast. But there is a **Verification Gap** between the "sketch" the AI draws and the "building" you actually need to inhabit. Most AI tools are like fast-talking interns: they’re great at starting tasks, but they don't know your rules, your safety boundaries, or what "done" actually looks like.
 
-UpToCode is the inspector. You describe what you're building in plain English — through a conversation, no technical knowledge required. UpToCode writes it all down as a spec, turns it into a set of rules, and checks every file Claude touches against those rules. Anything that doesn't match what you said you wanted gets flagged immediately, in the same turn, before it becomes a problem you find in production.
+**UpToCode** is your project's **Building Inspector**. It doesn't just write code; it enforces a **Product Constitution**. It interviews you to understand your blueprints, turns those "vibes" into a computable contract, and ensures that every line of code the AI writes is safe, secure, and structurally sound before a single customer walks through the door.
 
-Every new Claude session starts with amnesia. The spec is what you hand it instead of re-explaining everything from scratch. It's your product memory — what you're building, who can do what, what rules must hold, what states things move through.
-
-The difference between vibe coding a project and shipping a product that's actually up to code.
+It’s the difference between a project that looks good and a product that is **UpToCode**.
 
 ---
 
-## What it does
+## 🧠 Zero-Friction: Always on, Always Watching
 
-UpToCode sits next to you while Claude builds. Four jobs:
+You don't have to change how you work or remember to "run" a separate process; UpToCode is a silent supervisor working in the background. Once your blueprints are set, the tool runs automatically during every Claude session to catch mistakes before they become expensive repairs.
 
-### 1. Checks the code matches your plan
-You describe your feature in a conversation. UpToCode turns it into a set of rules. Every time Claude edits a file, UpToCode checks those rules and tells Claude immediately if something's wrong — before the mistake becomes a bug.
-
-> *"You said the API key must be set before calling the email service. This code skips that check."*
-
-### 2. Tries to break your app before your users do
-UpToCode reads your plan and generates a list of adversarial test cases — wrong inputs, missing fields, invalid sequences of events. It hands these to Claude with the question: does the code handle all of these correctly? Most vibe-coded apps don't. Now yours will.
-
-> *"What happens if someone submits a form with no email? What if they call this endpoint twice?"*
-
-### 3. Spots security holes in who can access what
-You describe who is allowed to do what in your app. UpToCode scans the code and flags anywhere that a part of the app is touching data it shouldn't be allowed to touch.
-
-> *"Your dashboard API is writing directly to a table that only the background processor should write to."*
-
-### 4. Checks your database is healthy
-Once your app is running, UpToCode connects to your database and checks whether everything looks right — are records stuck in a queue? Are there items pointing to things that no longer exist? Is anything failing at an unusual rate?
-
-> *"16 tasks reference documents that don't exist. 0 documents are stuck in pending."*
+* **No Extra Commands**: Build naturally with Claude while UpToCode monitors every file edit without you having to ask.
+* **Real-Time Guardrails**: UpToCode monitors your changes in real-time as you save or stage your code.
+* **Catch Flaws Early**: Structural weaknesses are flagged instantly, ensuring your project is product-ready before it ever reaches a user.
+* **Product Maturity by Default**: Your code stays honest and compliant through every turn, moving you from a "vibe" to a hardened product with zero extra effort.
 
 ---
 
-## How it fits into your workflow
+## 🏗️ What it does
 
-```
-UpToCode interviews you           →  Asks plain-English questions about what you're building
-UpToCode writes the spec          →  Your product memory — rules, data, states, actors, all in one place
-New Claude session?               →  Hand it the spec — no re-explaining, no context lost
-You vibe code with Claude         →  Claude writes the code fast
-UpToCode watches every edit       →  Flags anything that breaks the rules instantly
-Claude fixes it in the same turn  →  The code stays up to code as you go
-```
+### 1. The Inspector's Clipboard (Logic Enforcement)
+UpToCode turns your plain-English instructions into a formal **Predicate Grammar**. Every time the AI edits a file, UpToCode runs a deterministic check to ensure the logic matches your blueprints.
+> *"Your blueprints say a user must pay before seeing this page. This code skips that check."*
 
-By the time you're ready to ship, you have:
-- A single document that describes your product completely
-- Code that matches what you designed
-- A test suite that tries to break it
-- Confirmation that your security boundaries hold
-- A live health check on your database
+### 2. The Stress Test (Adversarial Probing)
+UpToCode uses your **State Machine** to find the hidden ways your app could break. It generates "adversarial personas" that try to bypass your logic to ensure your walls don't crumble under pressure.
+> *"What if someone clicks 'Submit' twice? What if they try to access the dashboard while their account is suspended?"*
 
-That's what separates a project from a product.
+### 3. Zoning & Permits (Security Auditing)
+You define exactly who is allowed to touch what data. UpToCode scans for security violations and flags any code that tries to cross a boundary it shouldn't.
+> *"CRITICAL: This dashboard route is writing to a table only the system should touch."*
+
+### 4. Foundation Health (Live Monitoring)
+Once you ship, UpToCode monitors your live database for "architectural drift" or stuck records that signal your logic is failing in the wild.
+> *"16 users have 'Active' status but missing Stripe IDs. Foundation integrity failing."*
 
 ---
 
-## See it in action
+## 🔄 The Vibe-to-Product Workflow
 
-**→ [Full walkthrough: building a waitlist app with UpToCode](docs/walkthrough.md)**
+UpToCode uses a **Two-Surface Architecture** to stay with you from the first prompt to the final building permit.
 
-Covers the full journey — UpToCode interviewing you, building the spec, Claude writing code with bugs, UpToCode catching them in real time, and generating the test suite. Takes about 5 minutes to read.
+| Step | Action | Tool Role | Interface |
+| :--- | :--- | :--- | :--- |
+| **1. Ideate** | "I want a pro tier." | **Architect:** Asks about logic & permissions. | IDE Sidebar |
+| **2. Formalize** | User clicks "Approve." | **Contractor:** Writes your `requirements.md`. | IDE Sidebar |
+| **3. Code** | AI generates code. | **Supervisor:** Monitors diffs in real-time. | IDE Sidebar |
+| **4. Verify** | Push to GitHub. | **Inspector:** Runs the "Candidate Truth" check. | GitHub PR |
+| **5. Harden** | Click "Apply Fix." | **Enforcer:** Refactors code to satisfy the spec. | GitHub PR |
+
+**"Vibe writes it. UpToCode proves it."**
+
+---
+
+## 🚀 Getting Started
+
+### Step 0: The Cold Start (Grounding your project)
+If you already have code, UpToCode analyzes your existing files and **reverse-engineers** a starter blueprint for you.
+> *"Run generate-spec for this project"*
+
+### Step 1: The Interview
+If you're starting from scratch, open Claude Code and say:
+> *"Interview me to build my spec"*
+
+UpToCode asks plain-English questions to fill your **States, Entities, and Rules**. Once the progress bar hits 100%, your "Product Memory" is locked in.
+
+---
+
+## 💻 Commands
+
+| What you say | What happens |
+| :--- | :--- |
+| *"Interview me to build my spec"* | Builds your `requirements.md` via plain-English Q&A. |
+| *"Run vibe compile"* | Turns your Markdown into a machine-readable `manifest.json`. |
+| *"Run contract-diff"* | Proves your code matches the "Candidate Truth" of your spec. |
+| *"Run generate-tests"* | Stress-tests your app with adversarial logic cases. |
+| *"Run security-audit"* | Plugs holes in your "Zoning & Permits". |
 
 ---
 
 ## Installation
 
-**You need:** [Node.js](https://nodejs.org) (v18 or later) and [Claude Code](https://claude.ai/code).
+**Requirements:** [Node.js](https://nodejs.org) (v18+) and [Claude Code](https://claude.ai/code).
 
 ```bash
-git clone https://github.com/ashzade/UpToCode
+git clone [https://github.com/ashzade/uptocode](https://github.com/ashzade/uptocode)
 cd uptocode && ./setup.sh
-```
-
-The setup script installs everything and prints two small config snippets to copy into your project. One tells Claude Code that UpToCode exists. The other turns on the live hook so UpToCode runs on every edit automatically.
-
-After that, restart Claude Code in your project.
-
----
-
-## Getting started
-
-### Step 1: Create your spec
-
-**Starting from scratch — no code yet:**
-
-Open Claude Code in your project folder and say:
-
-> *"Interview me to build my spec"*
-
-UpToCode asks you plain-English questions about what you're building — what it does, who uses it, what rules it must follow. You answer in your own words. No technical knowledge required. When you're done, it writes the spec and activates enforcement automatically.
-
-If you already have a spec and want to update it:
-
-> *"Interview me to build my spec"*
-
-UpToCode detects the existing spec, compiles it, and offers to update it or start building straight away.
-
-**Already have code:**
-
-> *"Run generate-spec for this project"*
-
-UpToCode analyses your existing code and writes the spec for you. Requires `ANTHROPIC_API_KEY` in your environment.
-
-### Step 2: Start building
-
-Once your spec is in place, just build normally with Claude. UpToCode watches every file edit and flags violations in real time — no extra commands needed.
-
----
-
-## What you can ask UpToCode to do
-
-Once installed, just ask Claude naturally:
-
-| What you say | What happens |
-|---|---|
-| *"Interview me to build my spec"* | UpToCode asks you questions and builds requirements.md from your answers |
-| *"Run compile-spec for this project"* | Activates enforcement from your requirements.md |
-| *"Run contract-diff for this project"* | Checks all your code against the rules right now |
-| *"Run generate-tests for this project"* | Generates a list of ways to break your app |
-| *"Run security-audit for this project"* | Finds data access that shouldn't be there |
-| *"Run scale-monitor for this project"* | Checks your live database for problems |
-| *"Run generate-spec for this project"* | Reads existing code and writes requirements.md for you |
-
----
-
-## Supported languages
-
-Python, TypeScript, JavaScript.
-
-Works with Flask, Express, FastAPI, SQLAlchemy, Knex, and raw SQL queries.
