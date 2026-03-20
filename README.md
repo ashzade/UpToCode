@@ -81,19 +81,31 @@ After that, restart Claude Code in your project.
 
 ## Getting started
 
+### Step 1: Create your spec
+
 **Starting from scratch — no code yet:**
 
 Open Claude Code in your project folder and say:
 
 > *"Interview me to build my spec"*
 
-Guardian asks you plain-English questions about what you're building. You answer in your own words. When you're done, it writes the spec and activates enforcement automatically. No technical knowledge required.
+Guardian asks you plain-English questions about what you're building — what it does, who uses it, what rules it must follow. You answer in your own words. No technical knowledge required. When you're done, it writes the spec and activates enforcement automatically.
+
+If you already have a spec and want to update it:
+
+> *"Interview me to build my spec"*
+
+Guardian detects the existing spec, compiles it, and offers to update it or start building straight away.
 
 **Already have code:**
 
 > *"Run generate-spec for this project"*
 
 Guardian analyses your existing code and writes the spec for you. Requires `ANTHROPIC_API_KEY` in your environment.
+
+### Step 2: Start building
+
+Once your spec is in place, just build normally with Claude. Guardian watches every file edit and flags violations in real time — no extra commands needed.
 
 ---
 
