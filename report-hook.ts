@@ -136,6 +136,21 @@ function enableAutoMerge(projectRoot: string, branch: string): void {
   } catch { /* auto-merge not available — branch protection may not be enabled */ }
 }
 
+function getBlockedPrs(projectRoot: string): Array<{ url: string; title: string }> {
+  try {
+    const json = run(
+      `gh pr list --head "claude/" --state open --json url,title,statusCheckRollup`,
+      projectRoot,
+    );
+    const prs: Array<{ url: string; title: string; statusCheckRollup: Array<{ state: string }> }> = JSON.parse(json);
+    return prs.filter(pr =>
+      pr.statusCheckRollup?.some(c => c.state === 'FAILURE' || c.state === 'ERROR')
+    ).map(({ url, title }) => ({ url, title }));
+  } catch {
+    return [];
+  }
+}
+
 // ── Core push logic ───────────────────────────────────────────────────────────
 
 function autoCommitAndPush(projectRoot: string, remote: string): PushResult {
@@ -247,6 +262,19 @@ function main() {
     remote: remote ?? undefined,
     prUrl: pushResult?.prUrl,
   });
+
+  // ── Notify about any blocked session PRs ─────────────────────────────────
+  if (remote) {
+    const blocked = getBlockedPrs(projectRoot);
+    if (blocked.length > 0) {
+      const lines = ['', '  ⚠️  Open PR(s) blocked by failing inspection:'];
+      for (const pr of blocked) {
+        lines.push(`    ${pr.title} — ${pr.url}`);
+      }
+      lines.push('  Fix the violations above and they will auto-merge.');
+      process.stdout.write(lines.join('\n') + '\n');
+    }
+  }
 
   process.stdout.write(report);
 
