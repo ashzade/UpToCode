@@ -106,9 +106,10 @@ After your spec is created, say:
 
 UpToCode will:
 1. Create a GitHub repository under your account
-2. Push all your code
-3. Install the inspection workflow
-4. Auto-save your progress to GitHub at the end of every session
+2. Generate a README for your project from your spec
+3. Push all your code
+4. Install the inspection workflow
+5. Auto-save your progress to GitHub at the end of every session
 
 No git commands. No configuration. One message.
 
