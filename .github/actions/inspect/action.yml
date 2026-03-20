@@ -42,7 +42,16 @@ runs:
         fi
         exit $EXIT
 
-    - name: Post inspection report
+    - name: Write to Actions summary
+      if: always()
+      shell: bash
+      run: |
+        REPORT="${{ inputs.project_root }}/.uptocode-report.md"
+        if [ -f "$REPORT" ]; then
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+        fi
+
+    - name: Post PR comment
       if: always() && github.event_name == 'pull_request'
       uses: actions/github-script@v7
       with:
@@ -52,7 +61,6 @@ runs:
           if (!fs.existsSync(reportPath)) return;
           const body = fs.readFileSync(reportPath, 'utf8');
 
-          // Find and update an existing UpToCode comment, or create a new one
           const { data: comments } = await github.rest.issues.listComments({
             owner: context.repo.owner,
             repo: context.repo.repo,

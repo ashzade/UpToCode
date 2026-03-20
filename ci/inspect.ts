@@ -1,51 +1,22 @@
 /**
  * UpToCode CI inspection script.
  *
- * Runs contract-diff, security-audit, and generate-tests against the project.
- * Writes a markdown report to .uptocode-report.md for the GitHub Action to post.
+ * Runs the full local inspection (logic, security, adversarial tests) and
+ * writes a markdown report to .uptocode-report.md for the GitHub Action.
  *
  * Usage:
  *   PROJECT_ROOT=/path/to/project ts-node --transpile-only ci/inspect.ts
  *
  * Exit codes:
- *   0 = all checks passed (or only warnings)
+ *   0 = all checks passed (or warnings only)
  *   1 = HIGH or CRITICAL violations found
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
-import { contractDiff } from '../src/diff-engine/index';
-import { CodeFile } from '../src/diff-engine/types';
+import { runInspection } from '../src/inspect/runner';
+import { renderMarkdown } from '../src/adversarial/test-generator';
 import { Manifest } from '../src/types';
-import { securityAudit } from '../src/security/access-auditor';
-import { generateTests, renderMarkdown } from '../src/adversarial/test-generator';
-
-// ── File collection ───────────────────────────────────────────────────────────
-
-const SKIP_DIRS = new Set(['.git', 'node_modules', 'dist', '.uptocode', '__pycache__', '.venv', 'venv']);
-const CODE_EXTS = new Set(['.py', '.ts', '.js']);
-
-function collectCodeFiles(dir: string): CodeFile[] {
-  const results: CodeFile[] = [];
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (SKIP_DIRS.has(entry.name)) continue;
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      results.push(...collectCodeFiles(full));
-    } else if (CODE_EXTS.has(path.extname(entry.name).toLowerCase())) {
-      results.push({ path: full, content: fs.readFileSync(full, 'utf-8') });
-    }
-  }
-  return results;
-}
-
-// ── Report row builder ────────────────────────────────────────────────────────
-
-function row(check: string, result: string, finding: string): string {
-  return `| **${check}** | ${result} | ${finding} |`;
-}
-
-// ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
   const projectRoot = process.env.PROJECT_ROOT ?? process.cwd();
@@ -65,76 +36,48 @@ async function main() {
   }
 
   const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-  const files = collectCodeFiles(projectRoot);
+  const { violations, securityFindings, testSuite, filesChecked } = runInspection(manifest, projectRoot);
 
-  // ── 1. Logic enforcement ──────────────────────────────────────────────────
-  const diffResult = contractDiff(manifest, files);
-  const violations = diffResult.violations;
   const highViolations = violations.filter(v => v.severity === 'HIGH' || v.severity === 'CRITICAL');
+  const highFindings = securityFindings.filter(f => f.severity === 'HIGH');
+  const highTests = testSuite.tests.filter(t => t.severity === 'HIGH').length;
+  const hasCritical = highViolations.length > 0 || highFindings.length > 0;
+
+  // ── Build report table ────────────────────────────────────────────────────
+  const row = (check: string, result: string, finding: string) =>
+    `| **${check}** | ${result} | ${finding} |`;
 
   const logicRow = row(
     'Logic Enforcement',
+    violations.length === 0 ? '✅ Pass' : highViolations.length > 0 ? `❌ ${violations.length} violation(s)` : `⚠️ ${violations.length} warning(s)`,
     violations.length === 0
-      ? '✅ Pass'
-      : highViolations.length > 0 ? `❌ ${violations.length} violation(s)` : `⚠️ ${violations.length} warning(s)`,
-    violations.length === 0
-      ? `${files.length} files checked, all clear`
-      : violations.slice(0, 2).map(v => `\`${v.ruleId}\`: ${v.title}`).join('; ') +
-        (violations.length > 2 ? ` (+${violations.length - 2} more)` : ''),
+      ? `${filesChecked} files checked, all clear`
+      : violations.slice(0, 2).map(v => `\`${v.ruleId}\`: ${v.title}`).join('; ') + (violations.length > 2 ? ` (+${violations.length - 2} more)` : ''),
   );
-
-  // ── 2. Security audit ─────────────────────────────────────────────────────
-  const secResult = securityAudit(manifest, files);
-  const findings = secResult.findings;
-  const highFindings = findings.filter(f => f.severity === 'HIGH');
 
   const secRow = row(
     'Security Audit',
-    findings.length === 0
-      ? '✅ Pass'
-      : highFindings.length > 0 ? `❌ ${findings.length} issue(s)` : `⚠️ ${findings.length} issue(s)`,
-    findings.length === 0
+    securityFindings.length === 0 ? '✅ Pass' : highFindings.length > 0 ? `❌ ${securityFindings.length} issue(s)` : `⚠️ ${securityFindings.length} issue(s)`,
+    securityFindings.length === 0
       ? 'No unguarded writes found'
-      : findings.slice(0, 2).map(f => f.description).join('; ') +
-        (findings.length > 2 ? ` (+${findings.length - 2} more)` : ''),
+      : securityFindings.slice(0, 2).map(f => f.description).join('; ') + (securityFindings.length > 2 ? ` (+${securityFindings.length - 2} more)` : ''),
   );
-
-  // ── 3. Adversarial tests ──────────────────────────────────────────────────
-  const suite = generateTests(manifest);
-  const testCount = suite.tests.length;
-  const highTests = suite.tests.filter(t => t.severity === 'HIGH').length;
 
   const testRow = row(
     'Adversarial Tests',
-    `⚠️ ${testCount} cases generated`,
+    `⚠️ ${testSuite.tests.length} cases generated`,
     `${highTests} high-severity · see adversarial-tests.md`,
   );
 
-  // Write the test file so it can be reviewed
-  if (testCount > 0) {
-    fs.writeFileSync(path.join(projectRoot, 'adversarial-tests.md'), renderMarkdown(suite));
-  }
+  const dbRow = row('Database Health', '⏭️ Skipped', 'Live database check runs locally only');
 
-  // ── 4. Database health ────────────────────────────────────────────────────
-  const dbRow = row(
-    'Database Health',
-    '⏭️ Skipped',
-    'Live database check runs locally only',
-  );
-
-  // ── Build report ──────────────────────────────────────────────────────────
-  const passed = violations.length === 0 && findings.length === 0;
-  const hasCritical = highViolations.length > 0 || highFindings.length > 0;
-
-  const sections: string[] = [
+  const passed = violations.length === 0 && securityFindings.length === 0;
+  const sections = [
     `## UpToCode Inspection Report ${passed ? '✅' : hasCritical ? '❌' : '⚠️'}`,
     '',
     '| Check | Result | Finding |',
     '|---|---|---|',
-    logicRow,
-    secRow,
-    testRow,
-    dbRow,
+    logicRow, secRow, testRow, dbRow,
   ];
 
   if (violations.length > 0) {
@@ -146,18 +89,21 @@ async function main() {
     }
   }
 
-  if (findings.length > 0) {
+  if (securityFindings.length > 0) {
     sections.push('', '### Security Findings');
-    for (const f of findings) {
-      const loc = `${path.relative(projectRoot, f.location.file)}:${f.location.line}`;
-      sections.push(`- [${f.severity}] ${f.description} (${loc})`);
+    for (const f of securityFindings) {
+      sections.push(`- [${f.severity}] ${f.description} (${path.relative(projectRoot, f.location.file)}:${f.location.line})`);
       sections.push(`  - Fix: ${f.fixHint}`);
     }
   }
 
   sections.push('', '*Inspected by [UpToCode](https://github.com/ashzade/UpToCode)*');
-
   fs.writeFileSync(reportPath, sections.join('\n'));
+
+  // Write adversarial tests file for review
+  if (testSuite.tests.length > 0) {
+    fs.writeFileSync(path.join(projectRoot, 'adversarial-tests.md'), renderMarkdown(testSuite));
+  }
 
   process.exit(hasCritical ? 1 : 0);
 }

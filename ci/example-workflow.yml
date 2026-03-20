@@ -1,11 +1,14 @@
 # Copy this file to .github/workflows/uptocode.yml in your project.
 #
-# This runs the UpToCode Building Inspection on every pull request and posts
-# the report as a PR comment. High or critical violations will fail the check.
+# Runs the UpToCode Building Inspection on every push and pull request.
+# Results appear in the GitHub Actions summary tab (always) and as a
+# PR comment (when a pull request is open).
 
 name: UpToCode Inspection
 
 on:
+  push:
+    branches: [main, master]
   pull_request:
     branches: [main, master]
 
@@ -14,7 +17,8 @@ jobs:
     name: Building Inspection
     runs-on: ubuntu-latest
     permissions:
-      pull-requests: write  # needed to post PR comments
+      pull-requests: write  # post PR comments
+      statuses: write       # post commit status
 
     steps:
       - uses: actions/checkout@v4

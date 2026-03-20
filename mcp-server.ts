@@ -83,6 +83,12 @@ const GenerateTestsInput = z.object({
   output_path: z.string().optional().describe('Where to write the test report. Defaults to <project_root>/adversarial-tests.md'),
 });
 
+const SetupGithubInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory'),
+  repo_name: z.string().describe('Name for the GitHub repository (e.g. "my-app")'),
+  private: z.boolean().optional().describe('Make the repository private. Defaults to false (public).'),
+});
+
 const GenerateSpecInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory to analyze'),
   description: z.string().optional().describe('Natural language description of what the feature does'),
@@ -169,6 +175,20 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             output_path: { type: 'string' },
           },
           required: ['project_root', 'what', 'users', 'main_thing', 'fields', 'states', 'actions', 'rules', 'external', 'env_vars'],
+        },
+      },
+      {
+        name: 'setup-github',
+        description:
+          'Creates a GitHub repository for the project, pushes the code, and installs the UpToCode inspection workflow. After this, every push automatically triggers a Building Inspection Report. Call this when the user asks to set up GitHub or wants automatic inspection reports.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory' },
+            repo_name: { type: 'string', description: 'Name for the GitHub repository' },
+            private: { type: 'boolean', description: 'Make the repository private (default: false)' },
+          },
+          required: ['project_root', 'repo_name'],
         },
       },
       {
@@ -385,7 +405,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ? `⚠ ${result.warnings.join(' | ')}`
         : `✓ Spec parsed cleanly on attempt ${result.parseAttempts}`;
 
-      const text = `${result.spec}\n\n---\n${statusLine}\n✓ requirements.md written to: ${result.outputPath}\n✓ manifest.json written — enforcement is now active.`;
+      // Check if project has a GitHub remote — if not, suggest setup
+      let githubTip = '';
+      try {
+        const { execSync } = await import('child_process');
+        execSync('git remote get-url origin', { cwd: input.project_root, stdio: 'pipe' });
+      } catch {
+        githubTip = '\n\n→ Want automatic inspection reports on every push?\n  Say "Help me set up GitHub for this project" and I\'ll take care of it.';
+      }
+
+      const text = `${result.spec}\n\n---\n${statusLine}\n✓ requirements.md written to: ${result.outputPath}\n✓ manifest.json written — enforcement is now active.${githubTip}`;
       return { content: [{ type: 'text', text }] };
     }
 
@@ -616,6 +645,55 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const text = `Generated ${total} adversarial tests (${severitySummary}).${writtenLine}\n\n${markdown}`;
 
       return { content: [{ type: 'text', text }] };
+    }
+
+    // ── setup-github ──────────────────────────────────────────
+    if (name === 'setup-github') {
+      const input = SetupGithubInput.parse(args);
+      const { execSync } = await import('child_process');
+      const visibility = input.private ? '--private' : '--public';
+      const workflowDir = path.join(input.project_root, '.github', 'workflows');
+      const workflowDest = path.join(workflowDir, 'uptocode.yml');
+      const workflowSrc = path.join(__dirname, 'ci', 'example-workflow.yml');
+
+      // Ensure git is initialised
+      if (!fs.existsSync(path.join(input.project_root, '.git'))) {
+        execSync('git init && git add -A && git commit -m "Initial commit"', {
+          cwd: input.project_root, shell: '/bin/bash', stdio: 'pipe',
+        });
+      }
+
+      // Create repo on GitHub and push
+      execSync(
+        `gh repo create ${input.repo_name} ${visibility} --source="${input.project_root}" --remote=origin --push`,
+        { shell: '/bin/bash', stdio: 'pipe' },
+      );
+
+      // Add UpToCode workflow
+      fs.mkdirSync(workflowDir, { recursive: true });
+      fs.copyFileSync(workflowSrc, workflowDest);
+      execSync('git add .github/ && git commit -m "Add UpToCode inspection workflow" && git push', {
+        cwd: input.project_root, shell: '/bin/bash', stdio: 'pipe',
+      });
+
+      const repoUrl = execSync('gh repo view --json url -q .url', { shell: '/bin/bash' }).toString().trim();
+      const actionsUrl = `${repoUrl}/actions`;
+
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `✓ GitHub repository created: ${repoUrl}`,
+            `✓ Code pushed to GitHub`,
+            `✓ UpToCode inspection workflow added`,
+            ``,
+            `Every push from now on will trigger a Building Inspection Report.`,
+            `View results at: ${actionsUrl}`,
+            ``,
+            `The UpToCode Stop hook will also auto-commit and push at the end of each session.`,
+          ].join('\n'),
+        }],
+      };
     }
 
     // ── spec-drift ────────────────────────────────────────────
