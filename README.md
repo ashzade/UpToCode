@@ -76,10 +76,12 @@ UpToCode asks plain-English questions to fill your **States, Entities, and Rules
 | What you say | What happens |
 | :--- | :--- |
 | *"Interview me to build my spec"* | Builds your `requirements.md` via plain-English Q&A. |
-| *"Run vibe compile"* | Turns your Markdown into a machine-readable `manifest.json`. |
-| *"Run contract-diff"* | Proves your code matches the "Candidate Truth" of your spec. |
-| *"Run generate-tests"* | Stress-tests your app with adversarial logic cases. |
-| *"Run security-audit"* | Plugs holes in your "Zoning & Permits". |
+| *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable `manifest.json`. |
+| *"Run contract-diff for this project"* | Proves your code matches the "Candidate Truth" of your spec. |
+| *"Run generate-tests for this project"* | Stress-tests your app with adversarial logic cases. |
+| *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits". |
+| *"Run scale-monitor for this project"* | Checks your live database for architectural drift. |
+| *"Run generate-spec for this project"* | Reverse-engineers a starter blueprint from existing code. |
 
 ---
 
@@ -88,5 +90,5 @@ UpToCode asks plain-English questions to fill your **States, Entities, and Rules
 **Requirements:** [Node.js](https://nodejs.org) (v18+) and [Claude Code](https://claude.ai/code).
 
 ```bash
-git clone [https://github.com/ashzade/uptocode](https://github.com/ashzade/uptocode)
-cd uptocode && ./setup.sh
+git clone https://github.com/ashzade/UpToCode
+cd UpToCode && ./setup.sh
