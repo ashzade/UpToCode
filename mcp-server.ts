@@ -16,8 +16,16 @@ import { generateSpec } from './src/interview/spec-generator';
 import { generateTests, renderMarkdown } from './src/adversarial/test-generator';
 import { securityAudit, renderSecurityReport } from './src/security/access-auditor';
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
+import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 import { generateProjectReadme } from './src/interview/readme-generator';
+
+function writeReadmeHash(projectRoot: string, requirementsContent: string): void {
+  const dir = path.join(projectRoot, '.uptocode');
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  const hash = crypto.createHash('sha256').update(requirementsContent).digest('hex');
+  fs.writeFileSync(path.join(dir, 'readme_spec_hash'), hash, 'utf-8');
+}
 
 // ── Schema definitions ──────────────────────────────────────────
 
@@ -681,6 +689,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const readmePath = path.join(input.project_root, 'README.md');
       fs.writeFileSync(readmePath, readme, 'utf-8');
+      writeReadmeHash(input.project_root, requirementsContent);
 
       return {
         content: [{ type: 'text', text: `✓ README.md written to ${readmePath}` }],
@@ -705,6 +714,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         const projectName = path.basename(input.project_root);
         const readme = await generateProjectReadme(requirementsContent, projectName, apiKey);
         fs.writeFileSync(readmePath, readme, 'utf-8');
+        writeReadmeHash(input.project_root, requirementsContent);
       }
 
       // Ensure git is initialised

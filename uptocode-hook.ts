@@ -15,6 +15,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { parse } from './src/index';
 import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
@@ -84,15 +85,32 @@ async function main() {
   const ext = path.extname(filePath).toLowerCase();
   const basename = path.basename(filePath);
 
-  // ── requirements.md changed → re-compile spec ───────────────────────────
+  // ── requirements.md changed → re-compile spec + check README staleness ──
   if (basename === 'requirements.md') {
     if (!fs.existsSync(filePath)) process.exit(0);
     try {
       const content = fs.readFileSync(filePath, 'utf-8');
       const manifest = parse(content);
-      const manifestPath = path.join(path.dirname(filePath), 'manifest.json');
+      const projectRoot = path.dirname(filePath);
+      const manifestPath = path.join(projectRoot, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
-      // Exit 0 — silently recompile, don't interrupt Claude's flow
+
+      // Check if README is stale
+      const uptocodeDir = path.join(projectRoot, '.uptocode');
+      const hashPath = path.join(uptocodeDir, 'readme_spec_hash');
+      const readmePath = path.join(projectRoot, 'README.md');
+      if (fs.existsSync(hashPath) && fs.existsSync(readmePath)) {
+        const storedHash = fs.readFileSync(hashPath, 'utf-8').trim();
+        const currentHash = crypto.createHash('sha256').update(content).digest('hex');
+        if (storedHash !== currentHash) {
+          process.stdout.write(
+            'UpToCode: your spec has changed since the README was last generated.\n' +
+            '  Say "Update the README for my project" to bring it up to date.\n'
+          );
+          process.exit(2);
+        }
+      }
+
       process.exit(0);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
