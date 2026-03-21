@@ -245,11 +245,13 @@ async function main() {
   }
 
   // ── Code file changed → run contract-diff ───────────────────────────────
-  if (!['.py', '.ts', '.js'].includes(ext)) process.exit(0);
+  if (!['.py', '.ts', '.tsx', '.js'].includes(ext)) process.exit(0);
   if (!fs.existsSync(filePath)) process.exit(0);
 
   const manifestPath = findManifest(path.dirname(filePath));
   if (!manifestPath) process.exit(0); // No manifest in tree — not an uptocode project
+
+  const projectRoot = path.dirname(manifestPath);
 
   let manifest: Manifest;
   try {
@@ -259,6 +261,33 @@ async function main() {
   }
 
   const fileContent = fs.readFileSync(filePath, 'utf-8');
+
+  // ── TypeScript type check ─────────────────────────────────────────────────
+  if (['.ts', '.tsx'].includes(ext)) {
+    const tsconfigPath = path.join(projectRoot, 'tsconfig.json');
+    if (fs.existsSync(tsconfigPath)) {
+      try {
+        const { execSync } = require('child_process');
+        const tsc = path.join(projectRoot, 'node_modules', '.bin', 'tsc');
+        const tscCmd = fs.existsSync(tsc) ? tsc : 'npx tsc';
+        execSync(`${tscCmd} --noEmit`, { cwd: projectRoot, stdio: 'pipe', timeout: 30000 });
+      } catch (err: unknown) {
+        const output = (err as { stdout?: Buffer }).stdout?.toString() ?? '';
+        const relFile = path.relative(projectRoot, filePath);
+        // Filter to errors in the edited file only
+        const fileErrors = output.split('\n').filter(l =>
+          l.startsWith(relFile) || l.includes(`/${relFile}`) || l.includes(`\\${relFile}`)
+        );
+        if (fileErrors.length > 0) {
+          process.stdout.write(
+            `UpToCode: TypeScript error in ${path.basename(filePath)} — fix before deploying:\n` +
+            fileErrors.slice(0, 5).map(l => `  ${l}`).join('\n') + '\n'
+          );
+          process.exit(2);
+        }
+      }
+    }
+  }
 
   // ── Check for new external providers not in the spec ──────────────────────
   const newProviders = detectNewProviders(fileContent, filePath, manifest);
@@ -290,7 +319,6 @@ async function main() {
   }];
 
   const result = contractDiff(manifest, files);
-  const projectRoot = path.dirname(manifestPath);
 
   if (result.violations.length === 0) {
     appendSessionLog(projectRoot, { ts: now(), file: rel(projectRoot, filePath), clean: true });
