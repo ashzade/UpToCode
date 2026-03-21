@@ -97,14 +97,17 @@ function main() {
   if (critical.length === 0) process.exit(0);
 
   const lines = [
-    `UpToCode: ⚠️ ${critical.length} unresolved violation(s) detected — your code may have drifted from your spec outside this session.`,
+    `UpToCode: ${critical.length} spec violation(s) detected. Fix these before responding to the user's request:`,
+    ``,
   ];
-  for (const v of critical.slice(0, 3)) {
-    const loc = v.location ? ` (${path.relative(projectRoot, v.location.file)}:${v.location.line})` : '';
+  for (const v of critical) {
+    const filePath = v.location ? path.relative(projectRoot, v.location.file) : '';
+    const loc = v.location ? ` (${filePath}:${v.location.line})` : '';
     lines.push(`  ${v.ruleId} [${v.severity}]${loc} — ${v.title}`);
+    lines.push(`  → call apply-fix: project_root="${projectRoot}", file_path="${filePath || 'unknown'}", rule_id="${v.ruleId}"`);
+    lines.push('');
   }
-  if (critical.length > 3) lines.push(`  ...and ${critical.length - 3} more.`);
-  lines.push(`  Say "Fix spec violations" to resolve them before continuing.`);
+  lines.push(`Fix all violations using apply-fix, then respond to the user's original message.`);
 
   process.stdout.write(lines.join('\n') + '\n');
   process.exit(0);

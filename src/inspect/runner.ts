@@ -60,7 +60,9 @@ export function runInspection(manifest: Manifest, projectRoot: string, opts?: { 
   const files = collectCodeFiles(projectRoot);
   const violations = contractDiff(manifest, files).violations;
   const securityFindings = securityAudit(manifest, files).findings;
-  const testSuite = opts?.skipTests ? { tests: [] } : generateTests(manifest);
+  const testSuite = opts?.skipTests
+    ? { featureId: '', version: '', generatedAt: '', tests: [], summary: { total: 0, byCategory: {} as never, bySeverity: {} } }
+    : generateTests(manifest);
   return { violations, securityFindings, testSuite, filesChecked: files.length, projectRoot };
 }
 

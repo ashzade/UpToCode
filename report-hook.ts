@@ -204,23 +204,49 @@ function main() {
   const projectRoot = findProjectRoot();
   if (!projectRoot) process.exit(0);
 
-  // ── Auto-commit and push — always runs regardless of session activity ──────
-  const remote = getGitRemote(projectRoot);
-  let pushResult: PushResult | null = null;
-  if (remote) {
-    pushResult = autoCommitAndPush(projectRoot, remote);
-  }
-
   // ── Load manifest ──────────────────────────────────────────────────────────
   let manifest: Manifest;
   try {
     manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf-8'));
   } catch {
-    if (pushResult?.status === 'pushed') {
-      const pr = pushResult.prUrl ? ` · PR: ${pushResult.prUrl}` : '';
-      process.stdout.write(`UpToCode: ✓ Saved to GitHub${pr}\n`);
+    // No manifest — push anyway
+    const remote = getGitRemote(projectRoot);
+    if (remote) {
+      const pushResult = autoCommitAndPush(projectRoot, remote);
+      if (pushResult.status === 'pushed') {
+        const pr = pushResult.prUrl ? ` · PR: ${pushResult.prUrl}` : '';
+        process.stdout.write(`UpToCode: ✓ Saved to GitHub${pr}\n`);
+      }
     }
     process.exit(0);
+  }
+
+  // ── Check for violations before pushing ────────────────────────────────────
+  const { violations } = runInspection(manifest, projectRoot, { skipTests: true });
+  const critical = violations.filter(v => v.severity === 'CRITICAL' || v.severity === 'HIGH');
+
+  if (critical.length > 0) {
+    const lines = [
+      `UpToCode: ${critical.length} violation(s) must be fixed before pushing:`,
+      '',
+    ];
+    for (const v of critical) {
+      const filePath = v.location ? path.relative(projectRoot, v.location.file) : '';
+      const loc = v.location ? ` (${filePath}:${v.location.line})` : '';
+      lines.push(`  ${v.ruleId} [${v.severity}]${loc} — ${v.title}`);
+      lines.push(`  → call apply-fix: project_root="${projectRoot}", file_path="${filePath || 'unknown'}", rule_id="${v.ruleId}"`);
+      lines.push('');
+    }
+    lines.push('Fix all violations using apply-fix, then I will push automatically.');
+    process.stdout.write(lines.join('\n') + '\n');
+    process.exit(2);
+  }
+
+  // ── No violations — safe to push ───────────────────────────────────────────
+  const remote = getGitRemote(projectRoot);
+  let pushResult: PushResult | null = null;
+  if (remote) {
+    pushResult = autoCommitAndPush(projectRoot, remote);
   }
 
   // ── Read session log ───────────────────────────────────────────────────────

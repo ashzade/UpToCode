@@ -21,8 +21,9 @@ You don't need to be a senior engineer or know the "right" professional processe
 * **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, and dead code left behind after a refactor.
-* **Session-Start Check**: At the start of every session, UpToCode scans the full codebase and warns you about any violations before Claude responds. Catches drift from work done outside Claude — direct edits, migrations, or other tools.
-* **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
+* **Session-Start Auto-Fix**: At the start of every session, UpToCode scans the full codebase and automatically fixes any HIGH/CRITICAL violations before Claude responds to you. Catches and resolves drift from work done outside Claude — direct edits, migrations, or other tools — without you having to ask.
+* **Pre-Push Auto-Fix**: Before committing and pushing any code to GitHub, UpToCode runs a full inspection. If violations remain, Claude fixes them first — then pushes. Your GitHub history is always clean.
+* **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed.
 * **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
 * **Automatic PRs & Auto-Merge**: Every session creates a pull request. When the inspection passes, it merges automatically. When it doesn't, you're told immediately — right in your terminal.
 * **Product-Ready by Default**: Your code stays honest and professional through every turn, moving you from a "vibe" to a hardened product with zero extra effort.
@@ -61,8 +62,8 @@ UpToCode stays with you from the first prompt to the final building permit.
 | **1. Ideate** | "I want a pro tier." | **Architect:** Asks questions to fill in the gaps. | IDE Sidebar |
 | **2. Formalize** | User clicks "Approve." | **Contractor:** Writes your `requirements.md`. | IDE Sidebar |
 | **3. Code** | AI generates code. | **Supervisor:** Monitors diffs in real-time. | IDE Sidebar |
-| **4. Verify** | Push to GitHub. | **Inspector:** Checks the code against your Playbook. | GitHub PR |
-| **5. Harden** | Click "Apply Fix." | **Enforcer:** Refactors code to satisfy the spec. | GitHub PR |
+| **4. Verify** | Push to GitHub. | **Inspector:** Checks for violations — fixes any it finds, then pushes. | Terminal |
+| **5. Review** | PR opens automatically. | **Enforcer:** CI inspection report posted as PR comment. | GitHub PR |
 
 **"Vibe writes it. UpToCode makes it product-ready."**
 
