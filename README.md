@@ -31,8 +31,9 @@ You don't need to be a senior engineer or know the "right" professional processe
 ## 🏗️ What it does
 
 ### 1. The Inspector's Clipboard (Logic Enforcement)
-UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions.
+UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also watches for new external services being added to your code that aren't in your spec yet — and tells you before your spec goes stale.
 > *"Your playbook says a user must pay before seeing this page. This code skips that check."*
+> *"New external provider detected — '@foursquare/api' is not in your spec. Say 'Update my spec to reflect this change' to sync it."*
 
 ### 2. The Stress Test (Adversarial Probing)
 UpToCode maps out every path a user can take to find the cracks where things usually break. It dreams up "what if" scenarios to make sure your app doesn't crumble when a user does something unexpected.
