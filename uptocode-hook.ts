@@ -138,6 +138,45 @@ function detectNewProviders(content: string, filePath: string, manifest: Manifes
   return newProviders;
 }
 
+const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next']);
+
+function walkCodeFiles(dir: string): string[] {
+  const results: string[] = [];
+  try {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory() && !SKIP_DIRS.has(entry.name)) results.push(...walkCodeFiles(full));
+      else if (entry.isFile() && /\.(py|ts|js)$/.test(entry.name)) results.push(full);
+    }
+  } catch { /* non-fatal */ }
+  return results;
+}
+
+/**
+ * Find providers declared in the manifest that are no longer imported
+ * anywhere in the codebase. Returns their manifest names.
+ */
+function detectDeadProviders(projectRoot: string, manifest: Manifest): string[] {
+  const providers = Object.keys(
+    (manifest as unknown as { externalProviders?: Record<string, unknown> }).externalProviders ?? {}
+  );
+  if (providers.length === 0) return [];
+
+  const allFiles = walkCodeFiles(projectRoot);
+  const allImports: string[] = [];
+  for (const f of allFiles) {
+    try {
+      allImports.push(...extractImportedPackages(fs.readFileSync(f, 'utf-8'), f));
+    } catch { /* skip unreadable files */ }
+  }
+  const normalizedImports = allImports.map(normalizePackageName);
+
+  return providers.filter(provider => {
+    const normalized = provider.replace(/[-_.]/g, '').toLowerCase();
+    return !normalizedImports.some(i => i.includes(normalized) || normalized.includes(i));
+  });
+}
+
 // ── Find nearest manifest.json ───────────────────────────────────────────────
 
 function findManifest(startDir: string): string | null {
@@ -231,6 +270,16 @@ async function main() {
     process.stdout.write(
       `UpToCode: new external provider detected — ${newProviders.map(p => `'${p}'`).join(', ')} is not in your spec${knownList}.\n` +
       `  Your requirements.md may be out of date. Say "Update my spec to reflect this change" to sync it.\n`
+    );
+    process.exit(2);
+  }
+
+  // ── Check for providers in the spec no longer used in the codebase ────────
+  const deadProviders = detectDeadProviders(projectRoot, manifest);
+  if (deadProviders.length > 0) {
+    process.stdout.write(
+      `UpToCode: ${deadProviders.map(p => `'${p}'`).join(', ')} is declared in your spec but not imported anywhere in the codebase.\n` +
+      `  This may be dead code and a stale spec reference. Say "Clean up removed providers from my spec" to remove them.\n`
     );
     process.exit(2);
   }
