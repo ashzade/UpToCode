@@ -21,6 +21,7 @@ You don't need to be a senior engineer or know the "right" professional processe
 * **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, and dead code left behind after a refactor.
+* **Session-Start Check**: At the start of every session, UpToCode scans the full codebase and warns you about any violations before Claude responds. Catches drift from work done outside Claude — direct edits, migrations, or other tools.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
 * **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
 * **Automatic PRs & Auto-Merge**: Every session creates a pull request. When the inspection passes, it merges automatically. When it doesn't, you're told immediately — right in your terminal.
