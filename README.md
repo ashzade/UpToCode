@@ -20,7 +20,7 @@ You don't need to be a senior engineer or know the "right" professional processe
 
 * **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
-* **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track.
+* **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, and dead code left behind after a refactor.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed. If anything is still open, Claude re-activates to address it automatically.
 * **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
 * **Automatic PRs & Auto-Merge**: Every session creates a pull request. When the inspection passes, it merges automatically. When it doesn't, you're told immediately — right in your terminal.
@@ -31,9 +31,11 @@ You don't need to be a senior engineer or know the "right" professional processe
 ## 🏗️ What it does
 
 ### 1. The Inspector's Clipboard (Logic Enforcement)
-UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also watches for new external services being added to your code that aren't in your spec yet — and tells you before your spec goes stale.
+UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also catches TypeScript type errors before they reach your deploy, watches for new external services that aren't in your spec, and flags dead code left behind after a refactor.
 > *"Your playbook says a user must pay before seeing this page. This code skips that check."*
+> *"TypeScript error in route.ts — 'details_verified' does not exist in type. Fix before deploying."*
 > *"New external provider detected — '@foursquare/api' is not in your spec. Say 'Update my spec to reflect this change' to sync it."*
+> *"'GooglePlaces' is declared in your spec but not imported anywhere. Say 'Clean up removed providers from my spec' to remove it."*
 
 ### 2. The Stress Test (Adversarial Probing)
 UpToCode maps out every path a user can take to find the cracks where things usually break. It dreams up "what if" scenarios to make sure your app doesn't crumble when a user does something unexpected.
