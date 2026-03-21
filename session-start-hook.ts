@@ -107,7 +107,7 @@ function main() {
   lines.push(`  Say "Fix spec violations" to resolve them before continuing.`);
 
   process.stdout.write(lines.join('\n') + '\n');
-  process.exit(2);
+  process.exit(0);
 }
 
 main();
