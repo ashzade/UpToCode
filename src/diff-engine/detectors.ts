@@ -472,38 +472,59 @@ function detectEnvVarViolation(
   candidates: Array<{ file: string; line: number }>,
   index: CodeIndex
 ): Violation | null {
+  // If the scope didn't match any files in the current index, skip this rule.
+  if (candidates.length === 0) return null;
+
   const envTerms = extractEnvTerms(rule.condition);
   if (envTerms.length === 0) return null;
 
-  for (const varName of envTerms) {
-    // Check if any candidate file accesses this env var
-    const anyFileHasAccess = candidates.some(candidate => {
+  // For OR conditions a single accessible env var satisfies the rule.
+  const isOrCondition = /\bOR\b/i.test(rule.condition);
+
+  const accessedTerms = envTerms.filter(varName =>
+    candidates.some(candidate => {
       const fileContent = index.getFile(candidate.file);
       return fileContent ? hasEnvVarAccess(varName, fileContent) : false;
-    });
+    })
+  );
 
-    if (!anyFileHasAccess) {
-      // Also check all files (not just candidates) — env var might be in config
-      const allFiles = candidates; // callers restrict to candidates; full scan done in index
-      const responses = enforcement.responses.map(r => r.action);
-      return {
-        ruleId: rule.id,
-        severity: enforcement.severity,
-        title: rule.title,
-        description:
-          `Rule ${rule.id} (${rule.title}): no guard for env var '${varName}' found in scanned files. ` +
-          `Expected patterns: os.getenv('${varName}'), if not ${varName}, or process.env.${varName}.`,
-        scopeTargets: getRuleScope(rule),
-        location: { file: candidates[0]?.file ?? '', line: 1 },
-        condition: rule.condition,
-        fixHint: `Add a guard: check that ${varName} is set before executing the operation. ` +
-          `Python: if not os.getenv('${varName}'): raise/return. Node: if (!process.env.${varName}) throw/return.`,
-        enforcement: { responses },
-      };
-    }
+  if (isOrCondition && accessedTerms.length > 0) return null;
+  if (!isOrCondition && accessedTerms.length === envTerms.length) return null;
+
+  // For OR conditions, also check if any non-env field term is guarded in the candidate files.
+  // e.g. "entity.city != '' OR env(DEFAULT_CITY) != ''" — guarding `city` satisfies the rule.
+  if (isOrCondition) {
+    const allTerms = extractConditionTerms(rule.condition);
+    const fieldTerms = allTerms.filter(t =>
+      (t.includes('_') || /^[a-z]/.test(t)) && !envTerms.includes(t)
+    );
+    const lang = candidates.length > 0 ? detectLanguage(candidates[0].file) : 'ts-js';
+    const fieldGuarded = fieldTerms.some(term =>
+      candidates.some(candidate => {
+        const fileContent = index.getFile(candidate.file);
+        return fileContent ? hasGuardOnTerm(fileContent, term, lang) : false;
+      })
+    );
+    if (fieldGuarded) return null;
   }
 
-  return null;
+  // Report the first unaccessed env var
+  const missing = envTerms.find(v => !accessedTerms.includes(v)) ?? envTerms[0];
+  const responses = enforcement.responses.map(r => r.action);
+  return {
+    ruleId: rule.id,
+    severity: enforcement.severity,
+    title: rule.title,
+    description:
+      `Rule ${rule.id} (${rule.title}): no guard for env var '${missing}' found in scanned files. ` +
+      `Expected patterns: os.getenv('${missing}'), if not ${missing}, or process.env.${missing}.`,
+    scopeTargets: getRuleScope(rule),
+    location: candidates[0]?.file ? { file: candidates[0].file, line: 1 } : null,
+    condition: rule.condition,
+    fixHint: `Add a guard: check that ${missing} is set before executing the operation. ` +
+      `Python: if not os.getenv('${missing}'): raise/return. Node: if (!process.env.${missing}) throw/return.`,
+    enforcement: { responses },
+  };
 }
 
 /**

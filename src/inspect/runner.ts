@@ -18,6 +18,7 @@ import { generateTests, TestSuite } from '../adversarial/test-generator';
 const SKIP_DIRS = new Set([
   '.git', 'node_modules', 'dist', '.uptocode',
   '__pycache__', '.venv', 'venv', '.next', 'build',
+  'prisma', 'migrations', 'seeds', 'fixtures',
 ]);
 const CODE_EXTS = new Set(['.py', '.ts', '.js']);
 
