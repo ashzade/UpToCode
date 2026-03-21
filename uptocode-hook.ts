@@ -52,6 +52,92 @@ interface HookInput {
   };
 }
 
+// ── Provider drift detection ─────────────────────────────────────────────────
+
+// Packages that are clearly not external service providers
+const UTILITY_PACKAGES = new Set([
+  // Node built-ins
+  'fs', 'path', 'crypto', 'http', 'https', 'url', 'os', 'stream', 'buffer',
+  'events', 'util', 'child_process', 'querystring', 'readline',
+  // Web frameworks
+  'express', 'fastify', 'koa', 'hapi', 'nestjs', 'next', 'nuxt',
+  // Frontend
+  'react', 'vue', 'angular', 'svelte', 'solid',
+  // DB clients (infrastructure, not services)
+  'pg', 'mysql', 'mysql2', 'sqlite3', 'mongoose', 'prisma', 'typeorm', 'knex',
+  'redis', 'ioredis', 'mongodb',
+  // HTTP/fetch
+  'axios', 'nodefetch', 'got', 'superagent', 'undici', 'crossfetch',
+  // Auth utilities (not a third-party service)
+  'jsonwebtoken', 'bcrypt', 'bcryptjs', 'passport',
+  // Utilities
+  'lodash', 'ramda', 'underscore', 'dotenv', 'cors', 'helmet', 'morgan',
+  'zod', 'yup', 'joi', 'classvalidator',
+  'uuid', 'nanoid', 'shortid',
+  'datefns', 'moment', 'dayjs',
+  'winston', 'pino', 'bunyan', 'debug',
+  'multer', 'formidable', 'busboy',
+  'sharp', 'jimp',
+  // Testing
+  'jest', 'mocha', 'chai', 'vitest', 'supertest', 'sinon',
+  // TypeScript / build
+  'typescript', 'tsnode', 'esbuild', 'webpack', 'vite', 'rollup',
+  // Anthropic/OpenAI (UpToCode itself uses Claude — don't flag it)
+  'anthropic', 'openai',
+]);
+
+function extractImportedPackages(content: string, filePath: string): string[] {
+  const packages: string[] = [];
+  const isPy = filePath.endsWith('.py');
+
+  if (!isPy) {
+    // import ... from 'pkg' / require('pkg')
+    const patterns = [
+      /(?:import|from)\s+['"](@[^'"./][^'"]*|[^'"./][^'"]*)['"]/g,
+      /require\s*\(\s*['"](@[^'"./][^'"]*|[^'"./][^'"]*)['"]\s*\)/g,
+    ];
+    for (const re of patterns) {
+      for (const m of content.matchAll(re)) {
+        packages.push(m[1]);
+      }
+    }
+  } else {
+    for (const m of content.matchAll(/^(?:import|from)\s+([a-zA-Z][a-zA-Z0-9_.]*)/gm)) {
+      packages.push(m[1]);
+    }
+  }
+
+  return [...new Set(packages)];
+}
+
+function normalizePackageName(pkg: string): string {
+  // @foursquare/api → foursquare, @google-cloud/maps → googlecloud
+  const base = pkg.startsWith('@')
+    ? (pkg.split('/')[1] ?? pkg.slice(1).split('/')[0])
+    : pkg.split('/')[0];
+  return base.replace(/[-_.]/g, '').toLowerCase();
+}
+
+function detectNewProviders(content: string, filePath: string, manifest: Manifest): string[] {
+  const packages = extractImportedPackages(content, filePath);
+  const knownProviders = Object.keys((manifest as unknown as { externalProviders?: Record<string, unknown> }).externalProviders ?? {})
+    .map(p => p.replace(/[-_.]/g, '').toLowerCase());
+
+  const newProviders: string[] = [];
+  for (const pkg of packages) {
+    const normalized = normalizePackageName(pkg);
+    if (normalized.length < 3) continue;
+    if (UTILITY_PACKAGES.has(normalized)) continue;
+    // Skip if it matches (or is substring of) a known provider
+    const matched = knownProviders.some(p => p.includes(normalized) || normalized.includes(p));
+    if (!matched) {
+      newProviders.push(pkg);
+    }
+  }
+
+  return newProviders;
+}
+
 // ── Find nearest manifest.json ───────────────────────────────────────────────
 
 function findManifest(startDir: string): string | null {
@@ -133,9 +219,25 @@ async function main() {
     process.exit(0);
   }
 
+  const fileContent = fs.readFileSync(filePath, 'utf-8');
+
+  // ── Check for new external providers not in the spec ──────────────────────
+  const newProviders = detectNewProviders(fileContent, filePath, manifest);
+  if (newProviders.length > 0) {
+    const knownNames = Object.keys(
+      (manifest as unknown as { externalProviders?: Record<string, unknown> }).externalProviders ?? {}
+    );
+    const knownList = knownNames.length > 0 ? ` (spec currently lists: ${knownNames.join(', ')})` : '';
+    process.stdout.write(
+      `UpToCode: new external provider detected — ${newProviders.map(p => `'${p}'`).join(', ')} is not in your spec${knownList}.\n` +
+      `  Your requirements.md may be out of date. Say "Update my spec to reflect this change" to sync it.\n`
+    );
+    process.exit(2);
+  }
+
   const files: CodeFile[] = [{
     path: filePath,
-    content: fs.readFileSync(filePath, 'utf-8'),
+    content: fileContent,
   }];
 
   const result = contractDiff(manifest, files);
