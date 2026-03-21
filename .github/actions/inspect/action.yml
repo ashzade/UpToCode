@@ -39,8 +39,16 @@ runs:
         GITHUB_BASE_REF: ${{ github.base_ref }}
       run: |
         cd "$RUNNER_TEMP/uptocode"
-        node node_modules/.bin/ts-node --transpile-only ci/inspect.ts 2>&1 | tee /tmp/uptocode-inspect.log
-        EXIT=${PIPESTATUS[0]}
+        echo "--- ts-node path ---"
+        ls node_modules/.bin/ts-node || echo "ts-node not found in node_modules/.bin"
+        echo "--- node version ---"
+        node --version
+        echo "--- running inspect ---"
+        set +e
+        node node_modules/.bin/ts-node --transpile-only ci/inspect.ts
+        EXIT=$?
+        set -e
+        echo "--- inspect exit: $EXIT ---"
         if [ $EXIT -eq 0 ]; then
           echo "passed=true" >> "$GITHUB_OUTPUT"
         else
