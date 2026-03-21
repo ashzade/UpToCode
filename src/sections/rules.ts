@@ -16,8 +16,9 @@ const VALID_OPERAND_PATTERNS = [
   /^(AND|OR|NOT)\b/,               // logical operators
   /^\(/,                            // grouping
   /^\)/,
-  /^(==|!=|>=|<=|>|<)/,           // comparators
+  /^(==|!=|>=|<=|>|<|-|\+|\*\/)/,  // comparators and arithmetic
   /^[A-Z][a-zA-Z]*\.[a-zA-Z]/,   // Provider.method(
+  /^[a-z][a-z0-9_]*\.[a-zA-Z_]/, // input param reference (token.value, request.ip, etc.)
 ];
 
 // Known computed-property references are bare snake_case names — we allow them
