@@ -40,6 +40,16 @@ echo ""
 cat <<EOF
 {
   "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node $UPTOCODE_DIR/node_modules/.bin/ts-node --transpile-only $UPTOCODE_DIR/session-start-hook.ts"
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
