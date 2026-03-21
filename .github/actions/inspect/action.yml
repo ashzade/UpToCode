@@ -39,8 +39,8 @@ runs:
         GITHUB_BASE_REF: ${{ github.base_ref }}
       run: |
         cd "$RUNNER_TEMP/uptocode"
-        node node_modules/.bin/ts-node --transpile-only ci/inspect.ts
-        EXIT=$?
+        node node_modules/.bin/ts-node --transpile-only ci/inspect.ts 2>&1 | tee /tmp/uptocode-inspect.log
+        EXIT=${PIPESTATUS[0]}
         if [ $EXIT -eq 0 ]; then
           echo "passed=true" >> "$GITHUB_OUTPUT"
         else
