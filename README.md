@@ -120,6 +120,8 @@ No git commands. No configuration. One message.
 
 **Every session:** UpToCode commits your work to a session branch (`claude/YYYY-MM-DD-HHmm`) and opens a pull request to main. Your progress is always saved and tracked.
 
+**While you build:** When a logic check passes and you have uncommitted changes, UpToCode tells you immediately — with the exact commit command to run. You never lose a day's work to a forgotten commit.
+
 **Every push:** A Building Inspection Report runs automatically in GitHub Actions — logic enforcement and security audit — and posts as a comment on the PR.
 
 **When the inspection passes:** The PR merges automatically. You don't have to touch GitHub.
