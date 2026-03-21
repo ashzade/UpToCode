@@ -110,6 +110,22 @@ const GenerateSpecInput = z.object({
   output_path: z.string().optional().describe('Where to write requirements.md. Defaults to <project_root>/requirements.md'),
 });
 
+// ── Helper: git commit nudge ─────────────────────────────────────
+
+function gitNudge(projectRoot: string): string {
+  try {
+    const { execSync } = require('child_process');
+    // Bail if not a git repo
+    execSync('git rev-parse --is-inside-work-tree', { cwd: projectRoot, stdio: 'pipe' });
+    const status = execSync('git status --porcelain', { cwd: projectRoot, stdio: 'pipe' }).toString().trim();
+    if (!status) return ''; // nothing uncommitted
+    const fileCount = status.split('\n').filter(Boolean).length;
+    return `\n\n→ ${fileCount} uncommitted file(s) detected. Consider committing your work:\n  git add -A && git commit -m "feat: <describe what you built>" && git push`;
+  } catch {
+    return '';
+  }
+}
+
 // ── Helper: walk project files ──────────────────────────────────
 
 const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next']);
@@ -521,7 +537,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       let summary: string;
       if (result.violations.length === 0) {
-        summary = '✓ All rules passed.';
+        const nudge = input.project_root ? gitNudge(input.project_root) : '';
+        summary = `✓ All rules passed.${nudge}`;
       } else {
         summary = `Found ${result.violations.length} violation(s). ${result.passed.length} rule(s) passed.`;
       }
