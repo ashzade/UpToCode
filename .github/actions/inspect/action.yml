@@ -29,7 +29,7 @@ runs:
       shell: bash
       run: |
         git clone --depth 1 https://github.com/ashzade/UpToCode "$RUNNER_TEMP/uptocode"
-        cd "$RUNNER_TEMP/uptocode" && npm ci --silent
+        cd "$RUNNER_TEMP/uptocode" && npm ci
 
     - name: Run inspection
       id: inspect
