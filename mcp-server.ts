@@ -102,6 +102,13 @@ const GenerateReadmeInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory containing requirements.md'),
 });
 
+const ApplyFixInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory'),
+  file_path: z.string().describe('Absolute or project-relative path to the file containing the violation'),
+  rule_id: z.string().describe('The rule ID to fix, e.g. RULE_SEC_01'),
+  line: z.number().optional().describe('Line number of the violation (from contract-diff output)'),
+});
+
 const GenerateSpecInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory to analyze'),
   description: z.string().optional().describe('Natural language description of what the feature does'),
@@ -109,6 +116,34 @@ const GenerateSpecInput = z.object({
   owner: z.string().optional().describe('Owner name or handle'),
   output_path: z.string().optional().describe('Where to write requirements.md. Defaults to <project_root>/requirements.md'),
 });
+
+// ── Helper: apply-fix hint builder ──────────────────────────────
+
+function buildApplyFixHint(
+  rule: { type: string; condition: string; title: string },
+  enforcement: { severity: string; responses: Array<{ action: string }> }
+): string {
+  const condition = rule.condition;
+  const responses = enforcement.responses.map(r => r.action).join(', ');
+
+  if (rule.type === 'Security' && condition.includes('Session.created_at')) {
+    const m = condition.match(/INTERVAL\((\d+),\s*(\w+)\)/);
+    if (m) return `Add middleware: reject if Session.created_at < NOW() - INTERVAL(${m[1]}, ${m[2]}). On violation: ${responses}.`;
+  }
+  if (rule.type === 'Security' && condition.includes('actor.type')) {
+    const m = condition.match(/actor\.type\s*==\s*['"](\w+)['"]/);
+    if (m) return `Restrict this route to actor type '${m[1]}' only. On violation: ${responses}.`;
+  }
+  if (rule.type === 'Business') {
+    const m = condition.match(/entity\.(\w+)/);
+    if (m) return `Add a guard: check \`${m[1]}\` before the operation. On violation: ${responses}.`;
+  }
+  if (rule.type === 'Validation') {
+    const m = condition.match(/entity\.(\w+)/);
+    if (m) return `Validate \`${m[1]}\` is not empty/null before processing. On violation: ${responses}.`;
+  }
+  return `Implement: \`${condition}\`. On violation: ${responses}.`;
+}
 
 // ── Helper: git commit nudge ─────────────────────────────────────
 
@@ -382,6 +417,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['base_manifest_path', 'head_manifest_path', 'code_paths'],
+        },
+      },
+      {
+        name: 'apply-fix',
+        description:
+          'Prepare context for fixing a specific rule violation. Reads the violating file, the rule from manifest.json, and similar guard patterns already in the codebase. Returns the file content with line numbers, the rule condition, the fix hint, and style examples — so you can apply the exact fix needed.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory' },
+            file_path: { type: 'string', description: 'Path to the file containing the violation (absolute or relative to project_root)' },
+            rule_id: { type: 'string', description: 'The rule ID to fix, e.g. RULE_SEC_01' },
+            line: { type: 'number', description: 'Line number of the violation (from contract-diff output)' },
+          },
+          required: ['project_root', 'file_path', 'rule_id'],
         },
       },
     ],
@@ -828,6 +878,81 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       return {
         content: [{ type: 'text', text }],
       };
+    }
+
+    // ── apply-fix ─────────────────────────────────────────────
+    if (name === 'apply-fix') {
+      const input = ApplyFixInput.parse(args);
+
+      // Resolve file path
+      const filePath = path.isAbsolute(input.file_path)
+        ? input.file_path
+        : path.join(input.project_root, input.file_path);
+
+      if (!fs.existsSync(filePath)) {
+        throw new Error(`File not found: ${filePath}`);
+      }
+
+      // Load manifest to get the rule
+      const manifestPath = path.join(input.project_root, 'manifest.json');
+      if (!fs.existsSync(manifestPath)) {
+        throw new Error(`manifest.json not found in ${input.project_root}. Run compile-spec first.`);
+      }
+      const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const rule = (manifest.rules as Record<string, unknown>)[input.rule_id] as {
+        id: string; type: string; title: string; condition: string;
+      } | undefined;
+
+      if (!rule) {
+        throw new Error(`Rule ${input.rule_id} not found in manifest.json`);
+      }
+
+      const enforcement = manifest.enforcement.find(e => e.ruleId === input.rule_id);
+
+      // Read the violating file with line numbers
+      const fileContent = fs.readFileSync(filePath, 'utf-8');
+      const numbered = fileContent
+        .split('\n')
+        .map((l, i) => `${String(i + 1).padStart(4, ' ')} | ${l}`)
+        .join('\n');
+
+      // Find similar guard patterns in the codebase for style reference
+      const allFiles = walkCodeFiles(input.project_root);
+      const guardPatterns: string[] = [];
+      const guardRegex = /if\s*\(!?req\.(user|session|auth)|requireAuth|isAuthenticated|checkPermission|hasRole|middleware/i;
+      for (const f of allFiles) {
+        if (f === filePath) continue;
+        const content = fs.readFileSync(f, 'utf-8');
+        const matches = content.split('\n').filter(l => guardRegex.test(l)).slice(0, 3);
+        if (matches.length > 0) {
+          guardPatterns.push(`// ${path.relative(input.project_root, f)}\n${matches.join('\n')}`);
+        }
+        if (guardPatterns.length >= 3) break;
+      }
+
+      const lineNote = input.line ? ` at line ${input.line}` : '';
+      const severityNote = enforcement ? ` [${enforcement.severity}]` : '';
+      const styleSection = guardPatterns.length > 0
+        ? `\n\n## Existing guard patterns in this codebase (match this style)\n\`\`\`\n${guardPatterns.join('\n\n')}\n\`\`\``
+        : '';
+
+      const text = [
+        `## Fix ${input.rule_id}${severityNote} — ${rule.title}`,
+        ``,
+        `**Rule type:** ${rule.type}`,
+        `**Condition:** \`${rule.condition}\``,
+        `**Fix hint:** ${enforcement ? buildApplyFixHint(rule, enforcement) : rule.condition}`,
+        ``,
+        `## File: ${path.relative(input.project_root, filePath)}${lineNote}`,
+        `\`\`\``,
+        numbered,
+        `\`\`\``,
+        styleSection,
+        ``,
+        `→ Apply the fix to satisfy \`${input.rule_id}\`. Edit the file above to add the missing guard.`,
+      ].join('\n');
+
+      return { content: [{ type: 'text', text }] };
     }
 
     return {
