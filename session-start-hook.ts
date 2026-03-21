@@ -21,7 +21,7 @@ import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
 
-const DEBOUNCE_MINUTES = 10;
+const DEBOUNCE_MINUTES = 2;
 const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next']);
 
 function findProjectRoot(): string | null {
