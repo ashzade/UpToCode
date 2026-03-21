@@ -122,7 +122,9 @@ No git commands. No configuration. One message.
 
 **While you build:** When a logic check passes and you have uncommitted changes, UpToCode tells you immediately — with the exact commit command to run. You never lose a day's work to a forgotten commit.
 
-**Every push:** A Building Inspection Report runs automatically in GitHub Actions — logic enforcement and security audit — and posts as a comment on the PR.
+**Every push:** A Building Inspection Report runs automatically in GitHub Actions — logic enforcement, security audit, and spec drift — and posts as a comment on the PR.
+
+**When your spec changes:** If your PR updates `requirements.md`, UpToCode posts a living checklist comment showing exactly which spec changes are implemented vs still missing. The checklist updates itself on every push. The PR is done when every item is checked.
 
 **When the inspection passes:** The PR merges automatically. You don't have to touch GitHub.
 
@@ -134,6 +136,7 @@ No git commands. No configuration. One message.
 |---|---|---|
 | **Logic Enforcement** | Every push | ✅ Pass / ❌ Violations block merge |
 | **Security Audit** | Every push | ✅ Pass / ❌ Findings block merge |
+| **Spec Drift** | Every PR | ⚠️ Living checklist of unimplemented spec changes |
 | **Adversarial Tests** | Nightly + on demand | ⚠️ Cases generated for review |
 | **Database Health** | On demand | Run `scale-monitor` locally |
 
