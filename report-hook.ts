@@ -100,6 +100,16 @@ function aheadCount(projectRoot: string): number {
   }
 }
 
+function aheadOfMain(projectRoot: string): number {
+  try {
+    // Fetch to ensure origin/main is current, then count commits not on main
+    const base = run('git remote show origin | grep "HEAD branch" | awk \'{print $NF}\'', projectRoot) || 'main';
+    return parseInt(run(`git rev-list --count origin/${base}..HEAD`, projectRoot), 10);
+  } catch {
+    return 0;
+  }
+}
+
 function sessionBranchName(): string {
   const now = new Date();
   const date = now.toISOString().slice(0, 10);
@@ -179,7 +189,11 @@ function autoCommitAndPush(projectRoot: string, remote: string): PushResult {
         run(`git add -A && git commit -m "checkpoint: ${timestamp}"`, projectRoot);
       }
       const ahead = aheadCount(projectRoot);
-      if (ahead === 0) return { status: 'up_to_date', branch };
+      // Also check commits ahead of main — catches the case where the branch's PR
+      // was squash-merged but new commits were added afterwards (aheadCount returns 0
+      // because upstream is up-to-date, but the commits aren't on main yet)
+      const aheadMain = aheadOfMain(projectRoot);
+      if (ahead === 0 && aheadMain === 0) return { status: 'up_to_date', branch };
 
       run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
 
