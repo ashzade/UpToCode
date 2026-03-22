@@ -17,6 +17,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { execSync } from 'child_process';
 import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
@@ -67,9 +68,35 @@ function writeStamp(projectRoot: string): void {
   } catch { /* non-fatal */ }
 }
 
+function getUncommittedFiles(projectRoot: string): string[] {
+  try {
+    const output = execSync('git status --porcelain', { cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'] })
+      .toString().trim();
+    if (!output) return [];
+    return output.split('\n')
+      .map(l => l.slice(3).trim())
+      .filter(f => !f.endsWith('.tsbuildinfo'));
+  } catch {
+    return [];
+  }
+}
+
 function main() {
   const projectRoot = findProjectRoot();
   if (!projectRoot) process.exit(0);
+
+  // Always check for uncommitted changes — not debounced
+  const uncommitted = getUncommittedFiles(projectRoot);
+  if (uncommitted.length > 0) {
+    const lines = [
+      `UpToCode: ${uncommitted.length} uncommitted file(s) — commit and push these before responding:`,
+      '',
+      ...uncommitted.map(f => `  ${f}`),
+      '',
+      'Run: git add -A && git commit -m "checkpoint" && git push',
+    ];
+    process.stdout.write(lines.join('\n') + '\n');
+  }
 
   if (!shouldRun(projectRoot)) process.exit(0);
   writeStamp(projectRoot);
