@@ -190,14 +190,25 @@ function autoCommitAndPush(projectRoot: string, remote: string): PushResult {
         const timestamp = new Date().toISOString().slice(0, 16).replace('T', ' ');
         run(`git add -A && git commit -m "checkpoint: ${timestamp}"`, projectRoot);
       }
-      const ahead = aheadCount(projectRoot);
-      // Also check commits ahead of main — catches the case where the branch's PR
-      // was squash-merged but new commits were added afterwards (aheadCount returns 0
-      // because upstream is up-to-date, but the commits aren't on main yet)
       const aheadMain = aheadOfMain(projectRoot);
-      if (ahead === 0 && aheadMain === 0) return { status: 'up_to_date', branch };
+      if (aheadMain === 0) return { status: 'up_to_date', branch };
 
-      run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
+      // Detect squash-merge divergence: branch PR was merged but history diverged.
+      // Signs: branch has a merge-base with main that predates main's HEAD, and
+      // the branch can't be fast-forward merged. Rebase onto main so the PR is clean.
+      try {
+        const mergeBase = run('git merge-base HEAD origin/main', projectRoot);
+        const mainHead = run('git rev-parse origin/main', projectRoot);
+        if (mergeBase !== mainHead) {
+          // Branch diverged from main (squash-merge case) — rebase onto main
+          run('git rebase origin/main', projectRoot);
+          run(`git push -u --force-with-lease "${authedRemote(remote)}" HEAD`, projectRoot);
+        } else {
+          run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
+        }
+      } catch {
+        run(`git push -u "${authedRemote(remote)}" HEAD`, projectRoot);
+      }
 
       const prUrl = getOrCreatePr(projectRoot, branch, remote);
       return { status: 'pushed', branch, prUrl };
