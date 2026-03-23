@@ -94,10 +94,8 @@ function splitSections(content: string): Record<string, string> {
       }
       currentSection = trimmed.slice(3).trim();
       sectionLines.length = 0;
-    } else {
-      if (currentSection !== null) {
-        sectionLines.push(line);
-      }
+    } else if (currentSection !== null && !line.trim().startsWith('> ')) {
+      sectionLines.push(line);
     }
   }
 

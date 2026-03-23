@@ -19,6 +19,7 @@ import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 import { generateProjectReadme } from './src/interview/readme-generator';
+import { enrichRequirements } from './src/enrich';
 
 function writeReadmeHash(projectRoot: string, requirementsContent: string): void {
   const dir = path.join(projectRoot, '.uptocode');
@@ -522,6 +523,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const dir = path.dirname(requirementsPath);
       const manifestPath = path.join(dir, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+
+      // Enrich requirements.md with plain-English descriptions
+      const enriched = enrichRequirements(requirementsContent, manifest);
+      if (enriched !== requirementsContent) {
+        fs.writeFileSync(requirementsPath, enriched, 'utf-8');
+      }
 
       const summaryLine = `✓ manifest.json written to ${dir}`;
       const text = `${JSON.stringify(manifest, null, 2)}\n\n${summaryLine}`;
