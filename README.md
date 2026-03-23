@@ -109,6 +109,33 @@ Condition: env(GOOGLE_PLACES_API_KEY) != ''
 | *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits." |
 | *"Run scale-monitor for this project"* | Checks your live database for architectural drift. |
 | *"Run generate-spec for this project"* | Reverse-engineers a starter Playbook from existing code. |
+| *"Show me my UpToCode report"* | Shows everything UpToCode has caught and fixed across all sessions — top rules triggered, most-flagged files, and resolution rate. |
+
+### Sample Session Report
+
+```
+## UpToCode Session Report
+Mar 21 → Mar 23
+
+|                         |      |
+|-------------------------|------|
+| Total violations caught | 47   |
+| Files flagged           | 12   |
+| Files resolved          | 10   |
+| Resolution rate         | 83%  |
+
+### Most triggered rules
+- RULE_05 [HIGH] — API key must be configured · 8× (8 fixed)
+- RULE_01 [HIGH] — Query must include a city and search text · 6× (5 fixed)
+- RULE_03 [MEDIUM] — Extracted restaurant must have a name · 5× (5 fixed)
+- RULE_06 [LOW] — Default city fallback required · 4× (3 fixed)
+
+### Most flagged files
+- ✓ `app/api/search/route.ts` — 11 violations
+- ✓ `lib/scrape.ts` — 9 violations
+- ○ `app/api/places/route.ts` — 6 violations
+- ✓ `lib/enrich.ts` — 5 violations
+```
 
 ---
 
