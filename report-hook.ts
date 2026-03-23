@@ -102,11 +102,13 @@ function aheadCount(projectRoot: string): number {
 
 function aheadOfMain(projectRoot: string): number {
   try {
-    // Fetch to ensure origin/main is current, then count commits not on main
-    const base = run('git remote show origin | grep "HEAD branch" | awk \'{print $NF}\'', projectRoot) || 'main';
+    // Fetch first so origin refs are current (stale tracking = false up-to-date)
+    run('git fetch --prune origin', projectRoot);
+    const base = run('git symbolic-ref refs/remotes/origin/HEAD', projectRoot)
+      .replace('refs/remotes/origin/', '') || 'main';
     return parseInt(run(`git rev-list --count origin/${base}..HEAD`, projectRoot), 10);
   } catch {
-    return 0;
+    return 1; // assume needs pushing if we can't tell
   }
 }
 
