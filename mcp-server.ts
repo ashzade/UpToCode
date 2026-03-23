@@ -19,7 +19,7 @@ import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 import { generateProjectReadme } from './src/interview/readme-generator';
-import { enrichRequirements } from './src/enrich';
+import { enrichRequirements, injectScopes } from './src/enrich';
 
 function writeReadmeHash(projectRoot: string, requirementsContent: string): void {
   const dir = path.join(projectRoot, '.uptocode');
@@ -517,10 +517,24 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ?? (input.project_root ? path.join(input.project_root, 'requirements.md') : null);
       if (!requirementsPath) throw new Error('Provide project_root or requirements_path');
 
-      const requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+      let requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+
+      // Migrate any scope data Claude added manually to manifest.json into requirements.md
+      // so it survives this and all future recompilations.
+      const dir = path.dirname(requirementsPath);
+      const existingManifestPath = path.join(dir, 'manifest.json');
+      if (fs.existsSync(existingManifestPath)) {
+        try {
+          const existing = JSON.parse(fs.readFileSync(existingManifestPath, 'utf-8'));
+          if (existing.rules) {
+            const migrated = injectScopes(requirementsContent, existing.rules);
+            if (migrated !== requirementsContent) requirementsContent = migrated;
+          }
+        } catch { /* non-fatal — proceed without migration */ }
+      }
+
       const manifest = parse(requirementsContent);
 
-      const dir = path.dirname(requirementsPath);
       const manifestPath = path.join(dir, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 

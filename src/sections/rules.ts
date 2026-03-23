@@ -103,7 +103,7 @@ export function parseRules(content: string): Record<string, Rule> {
       }
       const id = heading.slice(0, colonIdx).trim();
       const title = heading.slice(colonIdx + 1).trim();
-      currentRule = { id, title, references: [] };
+      currentRule = { id, title, references: [], scope: [] };
       continue;
     }
 
@@ -131,6 +131,9 @@ export function parseRules(content: string): Record<string, Rule> {
     } else if (trimmed.startsWith('References:')) {
       const refs = trimmed.slice(11).trim();
       currentRule.references = refs.split(',').map(r => r.trim()).filter(Boolean);
+    } else if (trimmed.startsWith('Scope:')) {
+      const scopes = trimmed.slice(6).trim();
+      currentRule.scope = scopes.split(',').map(s => s.trim()).filter(Boolean);
     }
   }
 

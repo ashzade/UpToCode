@@ -98,4 +98,5 @@ export interface Rule {
   condition: string;     // raw predicate string
   message: string;
   references: string[];
+  scope: string[];       // file paths/patterns this rule applies to (empty = all files)
 }
