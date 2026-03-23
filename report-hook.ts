@@ -332,6 +332,11 @@ function main() {
     fs.writeFileSync(lastReportPath, new Date().toISOString(), 'utf-8');
   } catch { /* non-fatal */ }
 
+  // Only write to stderr (user-visible) when the user needs to take action
+  if (pushResult?.status === 'push_failed') {
+    process.stderr.write('UpToCode: could not push to GitHub — check your connection or run "git push" manually.\n');
+  }
+
   process.exit(openFiles.length > 0 ? 2 : 0);
 }
 

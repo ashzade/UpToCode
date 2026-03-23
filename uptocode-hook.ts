@@ -293,9 +293,6 @@ async function main() {
             `UpToCode: TypeScript error in ${path.basename(filePath)} — fix before deploying:\n` +
             fileErrors.slice(0, 5).map(l => `  ${l}`).join('\n') + '\n'
           );
-          process.stderr.write(
-            `UpToCode caught a TypeScript error in ${path.basename(filePath)} — Claude is fixing it before it reaches your deploy.\n`
-          );
           process.exit(2);
         }
       }
@@ -313,10 +310,6 @@ async function main() {
       `UpToCode: new external provider detected — ${newProviders.map(p => `'${p}'`).join(', ')} is not in your spec${knownList}.\n` +
       `  Your requirements.md may be out of date. Say "Update my spec to reflect this change" to sync it.\n`;
     process.stdout.write(msg);
-    process.stderr.write(
-      `UpToCode spotted a new external service: ${newProviders.join(', ')}\n` +
-      `  It's not in your spec yet. Claude will ask you to update it.\n`
-    );
     process.exit(2);
   }
 
@@ -326,10 +319,6 @@ async function main() {
     process.stdout.write(
       `UpToCode: ${deadProviders.map(p => `'${p}'`).join(', ')} is declared in your spec but not imported anywhere in the codebase.\n` +
       `  This may be dead code and a stale spec reference. Say "Clean up removed providers from my spec" to remove them.\n`
-    );
-    process.stderr.write(
-      `UpToCode noticed ${deadProviders.join(', ')} is listed in your spec but no longer used in the code.\n` +
-      `  Claude will clean it up.\n`
     );
     process.exit(2);
   }
@@ -368,16 +357,6 @@ async function main() {
     if (v.fixHint) lines.push(`    Fix: ${v.fixHint}`);
   }
   process.stdout.write(lines.join('\n') + '\n');
-
-  // User-facing summary (stderr — shown in terminal)
-  const userLines = [
-    `UpToCode found ${result.violations.length} issue(s) in ${path.basename(filePath)} — Claude is fixing them:`,
-  ];
-  for (const v of result.violations) {
-    userLines.push(`  • ${v.title}`);
-  }
-  process.stderr.write(userLines.join('\n') + '\n');
-
   process.exit(2);
 }
 
