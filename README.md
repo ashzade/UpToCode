@@ -84,6 +84,16 @@ UpToCode asks plain-English questions to fill in three key areas:
 * **States**: The "Lifecycle" of those things (e.g., a post moving from Draft → Published → Deleted).
 * **Rules**: The "Guardrails" that keep things safe (e.g., "Only the owner can delete this post").
 
+The result is a `requirements.md` file that works on two levels at once. Each rule, transition, and entity has a plain-English description you can read and understand — and the structured definition beneath it that UpToCode enforces. You never need to learn any syntax. If something looks wrong, you can read it, and say *"Update rule X to reflect Y"* and UpToCode will fix it.
+
+```
+#### RULE_05: API Keys Required for Enrichment
+> Google Places API key must be configured; cannot enrich restaurant details.
+
+Type: Business
+Condition: env(GOOGLE_PLACES_API_KEY) != ''
+```
+
 ---
 
 ## 💻 Commands
@@ -93,7 +103,7 @@ UpToCode asks plain-English questions to fill in three key areas:
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
 | *"Help me set up GitHub for this project"* | Creates your repo, generates a README, pushes your code, sets up the inspection workflow, and enables branch protection. |
 | *"Generate a README for my project"* | Writes a plain-English README.md from your spec. |
-| *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net. |
+| *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net, and adds plain-English descriptions so you can read it too. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
 | *"Run generate-tests for this project"* | Finds the hidden ways your app could break. |
 | *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits." |
