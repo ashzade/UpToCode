@@ -82,7 +82,12 @@ function descriptionFor(
   if (section === 'External State Providers' && /^### \w/.test(trimmed)) {
     const name = trimmed.slice(4).trim();
     const provider = manifest.externalProviders[name];
-    if (provider?.provides) return `Used for: ${provider.provides}.`;
+    if (provider?.provides) {
+      const scopeNote = provider.scopes?.length
+        ? ` Requires scopes: ${provider.scopes.join(', ')}.`
+        : '';
+      return `Used for: ${provider.provides}.${scopeNote}`;
+    }
   }
 
   // ── Data Model: ### EntityName ────────────────────────────────────────────

@@ -38,7 +38,8 @@ export function parseProviders(content: string): Record<string, ExternalProvider
 
   let currentProvider: string | null = null;
   let inMethods = false;
-  let current: Partial<ExternalProvider> & { methods: ProviderMethod[] } = { methods: [] };
+  let inScopes = false;
+  let current: Partial<ExternalProvider> & { methods: ProviderMethod[]; scopes: string[] } = { methods: [], scopes: [] };
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -51,7 +52,8 @@ export function parseProviders(content: string): Record<string, ExternalProvider
       }
       currentProvider = trimmed.slice(4).trim();
       inMethods = false;
-      current = { methods: [] };
+      inScopes = false;
+      current = { methods: [], scopes: [] };
       continue;
     }
 
@@ -59,15 +61,19 @@ export function parseProviders(content: string): Record<string, ExternalProvider
 
     if (trimmed.startsWith('source:')) {
       current.source = trimmed.slice(7).trim();
-      inMethods = false;
+      inMethods = false; inScopes = false;
     } else if (trimmed.startsWith('provides:')) {
       current.provides = trimmed.slice(9).trim();
-      inMethods = false;
+      inMethods = false; inScopes = false;
     } else if (trimmed.startsWith('lookup_key:')) {
       current.lookupKey = trimmed.slice(11).trim();
-      inMethods = false;
+      inMethods = false; inScopes = false;
+    } else if (trimmed === 'Scopes:') {
+      inScopes = true; inMethods = false;
     } else if (trimmed === 'Methods:') {
-      inMethods = true;
+      inMethods = true; inScopes = false;
+    } else if (inScopes && trimmed.startsWith('- ')) {
+      current.scopes.push(trimmed.slice(2).trim());
     } else if (inMethods && trimmed.startsWith('- ')) {
       const sig = trimmed.slice(2).trim();
       current.methods.push(parseMethodSignature(sig));

@@ -35,6 +35,7 @@ export interface ExternalProvider {
   provides: string;
   lookupKey: string;
   methods: ProviderMethod[];
+  scopes: string[];
 }
 
 export interface StateTransition {
