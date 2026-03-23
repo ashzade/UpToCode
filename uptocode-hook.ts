@@ -107,13 +107,14 @@ function extractImportedPackages(content: string, filePath: string): string[] {
     }
   }
 
-  return [...new Set(packages)];
+  // Filter out relative imports and path aliases (e.g. @/lib/..., ./foo, ../bar)
+  return [...new Set(packages)].filter(p => !p.startsWith('@/') && !p.startsWith('./') && !p.startsWith('../'));
 }
 
 function normalizePackageName(pkg: string): string {
-  // @foursquare/api → foursquare, @google-cloud/maps → googlecloud
+  // @foursquare/api → foursquare, @google-cloud/maps → googlecloud, @prisma/client → prisma
   const base = pkg.startsWith('@')
-    ? (pkg.split('/')[1] ?? pkg.slice(1).split('/')[0])
+    ? pkg.slice(1).split('/')[0]  // take the scope, not the package name
     : pkg.split('/')[0];
   return base.replace(/[-_.]/g, '').toLowerCase();
 }
@@ -164,16 +165,25 @@ function detectDeadProviders(projectRoot: string, manifest: Manifest): string[] 
 
   const allFiles = walkCodeFiles(projectRoot);
   const allImports: string[] = [];
+  const allContents: string[] = [];
   for (const f of allFiles) {
     try {
-      allImports.push(...extractImportedPackages(fs.readFileSync(f, 'utf-8'), f));
+      const content = fs.readFileSync(f, 'utf-8');
+      allImports.push(...extractImportedPackages(content, f));
+      allContents.push(content.toLowerCase());
     } catch { /* skip unreadable files */ }
   }
   const normalizedImports = allImports.map(normalizePackageName);
 
   return providers.filter(provider => {
     const normalized = provider.replace(/[-_.]/g, '').toLowerCase();
-    return !normalizedImports.some(i => i.includes(normalized) || normalized.includes(i));
+    // Strip common suffixes to get the meaningful stem (e.g. "foursquareapi" → "foursquare")
+    const stem = normalized.replace(/(api|sdk|service|client|provider)$/, '');
+    // Consider alive if found in imports OR if the provider stem appears anywhere in the codebase
+    // (covers fetch-based integrations that don't import an npm package)
+    const inImports = normalizedImports.some(i => i.includes(normalized) || normalized.includes(i));
+    const inContent = stem.length >= 4 && allContents.some(c => c.includes(stem));
+    return !inImports && !inContent;
   });
 }
 
@@ -283,6 +293,9 @@ async function main() {
             `UpToCode: TypeScript error in ${path.basename(filePath)} — fix before deploying:\n` +
             fileErrors.slice(0, 5).map(l => `  ${l}`).join('\n') + '\n'
           );
+          process.stderr.write(
+            `UpToCode caught a TypeScript error in ${path.basename(filePath)} — Claude is fixing it before it reaches your deploy.\n`
+          );
           process.exit(2);
         }
       }
@@ -296,9 +309,13 @@ async function main() {
       (manifest as unknown as { externalProviders?: Record<string, unknown> }).externalProviders ?? {}
     );
     const knownList = knownNames.length > 0 ? ` (spec currently lists: ${knownNames.join(', ')})` : '';
-    process.stdout.write(
+    const msg =
       `UpToCode: new external provider detected — ${newProviders.map(p => `'${p}'`).join(', ')} is not in your spec${knownList}.\n` +
-      `  Your requirements.md may be out of date. Say "Update my spec to reflect this change" to sync it.\n`
+      `  Your requirements.md may be out of date. Say "Update my spec to reflect this change" to sync it.\n`;
+    process.stdout.write(msg);
+    process.stderr.write(
+      `UpToCode spotted a new external service: ${newProviders.join(', ')}\n` +
+      `  It's not in your spec yet. Claude will ask you to update it.\n`
     );
     process.exit(2);
   }
@@ -309,6 +326,10 @@ async function main() {
     process.stdout.write(
       `UpToCode: ${deadProviders.map(p => `'${p}'`).join(', ')} is declared in your spec but not imported anywhere in the codebase.\n` +
       `  This may be dead code and a stale spec reference. Say "Clean up removed providers from my spec" to remove them.\n`
+    );
+    process.stderr.write(
+      `UpToCode noticed ${deadProviders.join(', ')} is listed in your spec but no longer used in the code.\n` +
+      `  Claude will clean it up.\n`
     );
     process.exit(2);
   }
@@ -337,7 +358,7 @@ async function main() {
     })),
   });
 
-  // Format violations for Claude
+  // Format violations for Claude (stdout)
   const lines: string[] = [
     `UpToCode: ${result.violations.length} rule violation(s) in ${path.basename(filePath)}`,
   ];
@@ -346,8 +367,17 @@ async function main() {
     lines.push(`  ${v.ruleId} [${v.severity}]${loc} — ${v.title}`);
     if (v.fixHint) lines.push(`    Fix: ${v.fixHint}`);
   }
-
   process.stdout.write(lines.join('\n') + '\n');
+
+  // User-facing summary (stderr — shown in terminal)
+  const userLines = [
+    `UpToCode found ${result.violations.length} issue(s) in ${path.basename(filePath)} — Claude is fixing them:`,
+  ];
+  for (const v of result.violations) {
+    userLines.push(`  • ${v.title}`);
+  }
+  process.stderr.write(userLines.join('\n') + '\n');
+
   process.exit(2);
 }
 
