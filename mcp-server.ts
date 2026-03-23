@@ -103,6 +103,10 @@ const GenerateReadmeInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory containing requirements.md'),
 });
 
+const SessionReportInput = z.object({
+  project_root: z.string(),
+});
+
 const ApplyFixInput = z.object({
   project_root: z.string().describe('Absolute path to the project directory'),
   file_path: z.string().describe('Absolute or project-relative path to the file containing the violation'),
@@ -418,6 +422,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['base_manifest_path', 'head_manifest_path', 'code_paths'],
+        },
+      },
+      {
+        name: 'session-report',
+        description:
+          'Show a cumulative report of everything UpToCode has caught and fixed in this project — top violated rules, most-flagged files, resolution rate, and a timeline. Pass project_root to auto-discover the session log.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory' },
+          },
+          required: ['project_root'],
         },
       },
       {
@@ -974,6 +990,104 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       ].join('\n');
 
       return { content: [{ type: 'text', text }] };
+    }
+
+    // ── session-report ────────────────────────────────────────
+    if (name === 'session-report') {
+      const input = SessionReportInput.parse(args);
+      const logPath = path.join(input.project_root, '.uptocode', 'session.jsonl');
+
+      if (!fs.existsSync(logPath)) {
+        return { content: [{ type: 'text', text: 'No session log found — UpToCode has not recorded any activity for this project yet.' }] };
+      }
+
+      interface LogEntry {
+        ts: string;
+        file: string;
+        violations?: Array<{ ruleId: string; severity: string; title: string; line?: number }>;
+        clean?: boolean;
+      }
+
+      const entries: LogEntry[] = fs.readFileSync(logPath, 'utf-8')
+        .trim().split('\n').filter(Boolean)
+        .map(l => { try { return JSON.parse(l); } catch { return null; } })
+        .filter(Boolean);
+
+      if (entries.length === 0) {
+        return { content: [{ type: 'text', text: 'Session log is empty.' }] };
+      }
+
+      // Aggregate
+      const ruleHits: Record<string, { title: string; severity: string; count: number; fixed: number }> = {};
+      const fileHits: Record<string, { violations: number; fixed: boolean }> = {};
+      let totalViolations = 0;
+      let totalFixed = 0;
+
+      const violationFiles = new Set<string>();
+
+      for (const entry of entries) {
+        if (entry.violations && entry.violations.length > 0) {
+          violationFiles.add(entry.file);
+          fileHits[entry.file] = fileHits[entry.file] ?? { violations: 0, fixed: false };
+          fileHits[entry.file].violations += entry.violations.length;
+          totalViolations += entry.violations.length;
+
+          for (const v of entry.violations) {
+            if (!ruleHits[v.ruleId]) ruleHits[v.ruleId] = { title: v.title, severity: v.severity, count: 0, fixed: 0 };
+            ruleHits[v.ruleId].count++;
+          }
+        } else if (entry.clean && violationFiles.has(entry.file)) {
+          fileHits[entry.file].fixed = true;
+          totalFixed++;
+          // Credit the rules that were open for this file as fixed
+          const lastViolation = [...entries].reverse().find(e => e.file === entry.file && e.violations);
+          if (lastViolation?.violations) {
+            for (const v of lastViolation.violations) {
+              if (ruleHits[v.ruleId]) ruleHits[v.ruleId].fixed++;
+            }
+          }
+        }
+      }
+
+      const firstTs = new Date(entries[0].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const lastTs = new Date(entries[entries.length - 1].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const filesWithViolations = Object.keys(fileHits).length;
+      const fixRate = filesWithViolations > 0 ? Math.round((totalFixed / filesWithViolations) * 100) : 100;
+
+      const topRules = Object.entries(ruleHits)
+        .sort((a, b) => b[1].count - a[1].count)
+        .slice(0, 8);
+
+      const topFiles = Object.entries(fileHits)
+        .sort((a, b) => b[1].violations - a[1].violations)
+        .slice(0, 8);
+
+      const lines = [
+        `## UpToCode Session Report`,
+        `_${firstTs} → ${lastTs}_`,
+        ``,
+        `| | |`,
+        `|---|---|`,
+        `| Total violations caught | ${totalViolations} |`,
+        `| Files flagged | ${filesWithViolations} |`,
+        `| Files resolved | ${totalFixed} |`,
+        `| Resolution rate | ${fixRate}% |`,
+        ``,
+        `### Most triggered rules`,
+      ];
+
+      for (const [ruleId, info] of topRules) {
+        const fixNote = info.fixed > 0 ? ` _(${info.fixed} fixed)_` : '';
+        lines.push(`- **${ruleId}** [${info.severity}] — ${info.title} · ${info.count}×${fixNote}`);
+      }
+
+      lines.push(``, `### Most flagged files`);
+      for (const [file, info] of topFiles) {
+        const status = info.fixed ? '✓' : '○';
+        lines.push(`- ${status} \`${file}\` — ${info.violations} violation(s)`);
+      }
+
+      return { content: [{ type: 'text', text: lines.join('\n') }] };
     }
 
     return {
