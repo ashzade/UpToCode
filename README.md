@@ -20,6 +20,8 @@ You don't need to be a senior engineer or know the "right" professional processe
 
 * **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
+* **Conflict Detection Before You Build**: When you describe a new feature, UpToCode checks whether your request conflicts with your existing rules before Claude writes a single line. If it does, you're told immediately — so you decide upfront, not after the code is already written.
+* **Contradiction-Free Specs**: When you update your spec, UpToCode checks whether any rules contradict each other before saving it. If two rules can never both be true at the same time, the spec is blocked and you're shown exactly which rules conflict and how to resolve them.
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, dead code left behind after a refactor, and missing files that were imported but never created.
 * **Session-Start Auto-Fix**: At the start of every session, UpToCode scans the full codebase and automatically fixes any HIGH/CRITICAL violations before Claude responds to you. Catches and resolves drift from work done outside Claude — direct edits, migrations, or other tools — without you having to ask.
 * **Pre-Push Auto-Fix**: Before committing and pushing any code to GitHub, UpToCode runs a full inspection. If violations remain, Claude fixes them first — then pushes. Your GitHub history is always clean.
@@ -33,7 +35,15 @@ You don't need to be a senior engineer or know the "right" professional processe
 ## 🏗️ What it does
 
 ### 1. The Inspector's Clipboard (Logic Enforcement)
-UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also catches TypeScript type errors before they reach your deploy, watches for new external services that aren't in your spec, flags dead code left behind after a refactor, and verifies that every file Claude claims to have created is actually there.
+UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Enforcement happens at every stage — before you build, while you build, and before your code reaches GitHub.
+
+**Before you build** — when you describe a new feature, UpToCode checks whether it conflicts with your existing rules. If your spec says "payment required before access" and you ask to "let users in for free," UpToCode flags it before Claude writes anything.
+> *"UpToCode: this request conflicts with RULE_03 — 'Payment required before dashboard access'. Implementing free access would violate this rule. Tell the user to update their spec first if this is intentional."*
+
+**When you update your spec** — UpToCode checks whether any rules contradict each other before saving. Two rules that can never both be true block the save entirely.
+> *"❌ RULE_03 ↔ RULE_07 [CRITICAL] — RULE_03 requires is_paid == true, but RULE_07 requires is_paid == false. Both cannot be true at the same time. manifest.json was not written."*
+
+**While you build** — every file edit is checked against the full rule set in real time.
 > *"Your playbook says a user must pay before seeing this page. This code skips that check."*
 > *"TypeScript error in route.ts — 'details_verified' does not exist in type. Fix before deploying."*
 > *"New external provider detected — '@foursquare/api' is not in your spec. Say 'Update my spec to reflect this change' to sync it."*
@@ -61,10 +71,11 @@ UpToCode stays with you from the first prompt to the final building permit.
 | Step | Action | Tool Role | Interface |
 | :--- | :--- | :--- | :--- |
 | **1. Ideate** | "I want a pro tier." | **Architect:** Asks questions to fill in the gaps. | IDE Sidebar |
-| **2. Formalize** | User clicks "Approve." | **Contractor:** Writes your `requirements.md`. | IDE Sidebar |
-| **3. Code** | AI generates code. | **Supervisor:** Monitors diffs in real-time. | IDE Sidebar |
-| **4. Verify** | Push to GitHub. | **Inspector:** Checks for violations — fixes any it finds, then pushes. | Terminal |
-| **5. Review** | PR opens automatically. | **Enforcer:** CI inspection report posted as PR comment. | GitHub PR |
+| **2. Formalize** | User clicks "Approve." | **Contractor:** Writes your `requirements.md` — checks for contradictions before saving. | IDE Sidebar |
+| **3. Build** | "Add this feature." | **Gatekeeper:** Checks your request against existing rules before writing any code. | IDE Sidebar |
+| **4. Code** | AI generates code. | **Supervisor:** Monitors diffs in real-time. | IDE Sidebar |
+| **5. Verify** | Push to GitHub. | **Inspector:** Checks for violations — fixes any it finds, then pushes. | Terminal |
+| **6. Review** | PR opens automatically. | **Enforcer:** CI inspection report posted as PR comment. | GitHub PR |
 
 **"Vibe writes it. UpToCode makes it product-ready."**
 
