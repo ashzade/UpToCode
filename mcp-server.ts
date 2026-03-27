@@ -20,6 +20,7 @@ import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 import { generateProjectReadme, buildReadmeFromManifest } from './src/interview/readme-generator';
+import { checkContradictionsWithLLM, renderContradictionReport } from './src/inspect/contradiction-checker';
 import { injectScopes } from './src/enrich';
 
 function writeReadmeHash(projectRoot: string, requirementsContent: string): void {
@@ -576,6 +577,15 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const manifest = parse(requirementsContent);
 
+      // ── Contradiction check (runs before writing anything) ────
+      const apiKey = process.env.ANTHROPIC_API_KEY ?? '';
+      const contradictionReport = await checkContradictionsWithLLM(manifest, apiKey);
+      if (contradictionReport.hasBlockers) {
+        return {
+          content: [{ type: 'text', text: renderContradictionReport(contradictionReport) }],
+        };
+      }
+
       const manifestPath = path.join(dir, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
@@ -584,8 +594,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const readme = buildReadmeFromManifest(manifest);
       fs.writeFileSync(readmePath, readme, 'utf-8');
 
+      const warningText = contradictionReport.contradictions.length > 0
+        ? '\n\n' + renderContradictionReport(contradictionReport)
+        : '';
       const summaryLine = `✓ manifest.json and README.md written to ${dir}`;
-      const text = `${JSON.stringify(manifest, null, 2)}\n\n${summaryLine}`;
+      const text = `${JSON.stringify(manifest, null, 2)}\n\n${summaryLine}${warningText}`;
 
       return {
         content: [{ type: 'text', text }],
