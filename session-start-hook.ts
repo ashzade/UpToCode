@@ -18,6 +18,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { execSync } from 'child_process';
+import Anthropic from '@anthropic-ai/sdk';
 import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
@@ -81,9 +82,125 @@ function getUncommittedFiles(projectRoot: string): string[] {
   }
 }
 
-function main() {
+// ── Prompt reading ────────────────────────────────────────────────────────────
+
+function readPromptFromStdin(): string {
+  try {
+    const raw = fs.readFileSync('/dev/stdin', 'utf-8').trim();
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return typeof parsed.prompt === 'string' ? parsed.prompt : '';
+  } catch {
+    return '';
+  }
+}
+
+// ── Request conflict check ────────────────────────────────────────────────────
+
+/**
+ * Rough heuristic: does this look like a "build me something" request?
+ * We only want to run the conflict check for feature/change requests, not
+ * questions, debugging help, or general conversation.
+ */
+function isFeatureRequest(prompt: string): boolean {
+  const p = prompt.toLowerCase();
+  const buildWords = /\b(add|build|create|implement|allow|enable|let users?|i want|give users?|support|introduce|set up|configure|wire up|integrate|make (it|the|a|sure)|i('d| would) like|can you (add|build|create|make|implement))\b/;
+  const skipWords  = /^\s*(why|what('s| is| are)?|how (does|do|did|can|should)|explain|show me|list|can you (explain|show|list|tell)|what (are|is) the|check if|is there|does the|did you|when (does|did|will)|where (does|is)|who (can|should)|help me understand|remind me|what happened)\b/;
+  return buildWords.test(p) && !skipWords.test(p);
+}
+
+async function checkRequestConflicts(prompt: string, manifest: Manifest): Promise<string | null> {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) return null;
+
+  const rules = Object.values(manifest.rules ?? {});
+  if (rules.length === 0) return null;
+
+  const client = new Anthropic({ apiKey });
+
+  const ruleList = rules
+    .map(r => `${r.id} [${r.type}] "${r.title}": ${r.message}`)
+    .join('\n');
+
+  const checkPrompt = `A user asked Claude to build something. Before any code is written, check whether the request directly conflicts with the project's existing rules.
+
+Existing rules:
+${ruleList}
+
+User's request: "${prompt}"
+
+Only flag a conflict if implementing this request literally would violate or contradict a specific rule — e.g. a rule says "payment required before access" and the user is asking to "allow free access without paying".
+
+Do NOT flag:
+- Requests that are simply additive or orthogonal to existing rules
+- Requests that are ambiguous and could be implemented in a compliant way
+- Vague requests that don't clearly conflict with anything specific
+
+Respond with JSON only:
+{
+  "hasConflict": true | false,
+  "conflicts": [
+    {
+      "ruleId": "RULE_XX",
+      "ruleTitle": "...",
+      "description": "one sentence explaining why implementing this request would violate this rule",
+      "resolution": "one sentence: what the user should clarify or decide before building"
+    }
+  ]
+}`;
+
+  try {
+    const response = await client.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 512,
+      messages:   [{ role: 'user', content: checkPrompt }],
+    });
+
+    const text   = response.content[0].type === 'text' ? response.content[0].text.trim() : '{}';
+    const parsed = JSON.parse(text.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, ''));
+
+    if (!parsed.hasConflict || !parsed.conflicts?.length) return null;
+
+    const lines = [
+      `UpToCode: this request conflicts with existing spec rules. Flag this to the user before building:`,
+      '',
+    ];
+    for (const c of parsed.conflicts) {
+      lines.push(`  ❌ ${c.ruleId} — ${c.ruleTitle}`);
+      lines.push(`     ${c.description}`);
+      lines.push(`     → ${c.resolution}`);
+      lines.push('');
+    }
+    lines.push(`Tell the user about this conflict. If they want to change the rule, ask them to update requirements.md first, then build.`);
+
+    return lines.join('\n');
+  } catch {
+    return null;  // degrade gracefully — never block on a failed check
+  }
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+async function main() {
+  const prompt      = readPromptFromStdin();
   const projectRoot = findProjectRoot();
   if (!projectRoot) process.exit(0);
+
+  // ── Request conflict check — runs before any code is written ─────────────
+  if (prompt && isFeatureRequest(prompt)) {
+    let manifest: Manifest | null = null;
+    try {
+      manifest = JSON.parse(fs.readFileSync(path.join(projectRoot, 'manifest.json'), 'utf-8'));
+    } catch { /* no manifest yet — skip */ }
+
+    if (manifest) {
+      const warning = await checkRequestConflicts(prompt, manifest);
+      if (warning) {
+        process.stdout.write(warning + '\n');
+        process.exit(2);
+      }
+    }
+  }
 
   // Always check for uncommitted changes — not debounced
   const uncommitted = getUncommittedFiles(projectRoot);
@@ -140,4 +257,4 @@ function main() {
   process.exit(0);
 }
 
-main();
+main().catch(() => process.exit(0));
