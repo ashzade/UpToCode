@@ -2,13 +2,14 @@
  * Generates user-friendly Mermaid diagrams from a compiled manifest.
  *
  * Two narrative diagrams:
- *   1. Content pipeline  — how content enters, is analyzed, and becomes knowledge
- *   2. User interactions — what a user sees and can do with that knowledge
+ *   1. Flow diagram  — how the system processes a request or ingests data
+ *   2. User interactions — what a user sees and can do
  *
  * Plus an optional technical appendix:
- *   3. Document lifecycle — state machine transitions
+ *   3. Entity lifecycle — state machine transitions for the primary entity
  *
- * All generation is deterministic; no LLM call required.
+ * Titles and descriptions are derived from the manifest; no hardcoded
+ * project-specific labels. All generation is deterministic; no LLM call.
  */
 
 import { Manifest, Actor } from '../types';
@@ -88,6 +89,89 @@ const ACTION_LABELS: Record<string, string> = {
   'conflicts':              'Resolve conflicts',
   'knowledge_gaps':         'Answer knowledge gaps',
 };
+
+// ── Title / description inference ─────────────────────────────────────────────
+
+/**
+ * Infer a title and one-line description for the main flow diagram based on
+ * what kinds of external providers the project uses.
+ *
+ * - Pure search/fetch projects (no AI analyzers): "Request flow"
+ * - Projects with AI analysis on top of external data: "How it works"
+ * - AI-only projects (no external data sources): "Processing pipeline"
+ * - Fallback: feature name + "— data flow"
+ */
+function inferFlowDiagramMeta(manifest: Manifest): { title: string; description: string } {
+  const { sources, analyzers } = classifyProviders(manifest);
+  const featureName = manifest.feature?.name ?? 'the system';
+
+  if (sources.length > 0 && analyzers.length > 0) {
+    const sourceList = sources.join(', ');
+    const analyzerList = analyzers.join(', ');
+    return {
+      title: 'How it works',
+      description: `How a request flows from user input through ${sourceList}, is processed by ${analyzerList}, and returns results.`,
+    };
+  }
+
+  if (sources.length > 0) {
+    const sourceList = sources.join(', ');
+    return {
+      title: 'Request flow',
+      description: `How user input is interpreted, sent to ${sourceList}, and results are returned.`,
+    };
+  }
+
+  if (analyzers.length > 0) {
+    const analyzerList = analyzers.join(', ');
+    return {
+      title: 'Processing pipeline',
+      description: `How data is ingested and processed by ${analyzerList} to produce structured output.`,
+    };
+  }
+
+  return {
+    title: `${featureName} — data flow`,
+    description: `How ${featureName} processes and stores data.`,
+  };
+}
+
+/**
+ * Infer a title and description for the state machine diagram.
+ * Uses the primary entity written by the system processor as the subject.
+ * Falls back to "Item" if no clear entity can be found.
+ */
+function inferStateDiagramMeta(manifest: Manifest): { title: string; description: string } {
+  const processorEntry = Object.entries(manifest.actors ?? {}).find(([, a]) => {
+    const w = a.write;
+    return Array.isArray(w) && w.length > 3;
+  });
+
+  const primaryEntities = processorEntry
+    ? realEntities(manifest, processorEntry[0])
+    : realEntities(manifest);
+
+  const subject = primaryEntities.length > 0
+    ? entityLabel(primaryEntities[0])
+    : 'Item';
+
+  return {
+    title: `${subject} lifecycle`,
+    description: `States a ${subject.toLowerCase()} moves through from creation to completion.`,
+  };
+}
+
+/**
+ * Infer a display name for the primary user actor.
+ * Uses the actor's key from the manifest, falling back to "User".
+ */
+function inferUserActorLabel(manifest: Manifest): string {
+  const consumerEntry =
+    Object.entries(manifest.actors ?? {}).find(([, a]) => a.read === '*') ??
+    Object.entries(manifest.actors ?? {}).find(([, a]) => Array.isArray(a.read) && (a.read as string[]).length > 3);
+
+  return consumerEntry ? entityLabel(consumerEntry[0]) : 'User';
+}
 
 function friendlyAction(token: string): string {
   if (ACTION_LABELS[token]) return ACTION_LABELS[token];
@@ -215,7 +299,8 @@ export function generateUserFlowDiagram(manifest: Manifest): string | null {
 
   const lines: string[] = ['flowchart LR'];
 
-  lines.push('    User(["👤 PM / User"])');
+  const actorLabel = inferUserActorLabel(manifest);
+  lines.push(`    User(["👤 ${safe(actorLabel)}"])`);
 
   // "See" subgraph
   if (viewable.length > 0) {
@@ -279,22 +364,25 @@ export function generateDiagramsSection(manifest: Manifest): string {
 
   const pipeline = generateContentPipelineDiagram(manifest);
   if (pipeline) {
-    parts.push('### Content pipeline', '');
-    parts.push('How content enters the system, is analyzed by AI, and becomes structured knowledge.', '');
+    const { title, description } = inferFlowDiagramMeta(manifest);
+    parts.push(`### ${title}`, '');
+    parts.push(description, '');
     parts.push('```mermaid', pipeline, '```', '');
   }
 
   const userFlow = generateUserFlowDiagram(manifest);
   if (userFlow) {
+    const actorLabel = inferUserActorLabel(manifest);
     parts.push('### User interactions', '');
-    parts.push('What a user can view and act on through the dashboard.', '');
+    parts.push(`What ${actorLabel.toLowerCase()}s can view and interact with.`, '');
     parts.push('```mermaid', userFlow, '```', '');
   }
 
   const state = generateStateDiagram(manifest);
   if (state) {
-    parts.push('### Document lifecycle', '');
-    parts.push('States a document moves through from ingestion to processed output.', '');
+    const { title, description } = inferStateDiagramMeta(manifest);
+    parts.push(`### ${title}`, '');
+    parts.push(description, '');
     parts.push('```mermaid', state, '```', '');
   }
 

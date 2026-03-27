@@ -34,6 +34,27 @@ export function buildReadmeFromManifest(manifest: Manifest): string {
     lines.push('');
   }
 
+  // ── Rules ────────────────────────────────────────────────────
+  const rulesByType: Record<string, typeof manifest.rules[string][]> = {};
+  for (const rule of Object.values(manifest.rules ?? {})) {
+    (rulesByType[rule.type] ??= []).push(rule);
+  }
+  for (const type of ['Business', 'Validation', 'Security'] as const) {
+    const group = rulesByType[type];
+    if (!group?.length) continue;
+    lines.push(`## ${type} rules`, '');
+    for (const rule of group) {
+      const enforcement = manifest.enforcement.find(e => e.ruleId === rule.id);
+      const severity = enforcement ? ` _(${enforcement.severity})_` : '';
+      lines.push(`- **${rule.title}**${severity} — ${rule.message}`);
+    }
+    lines.push('');
+  }
+
+  // ── Diagrams ─────────────────────────────────────────────────
+  const diagrams = generateDiagramsSection(manifest);
+  if (diagrams) lines.push(diagrams);
+
   // ── Data model ───────────────────────────────────────────────
   const entities = Object.entries(manifest.dataModel ?? {});
   if (entities.length > 0) {
@@ -94,23 +115,6 @@ export function buildReadmeFromManifest(manifest: Manifest): string {
     lines.push('');
   }
 
-  // ── Rules ────────────────────────────────────────────────────
-  const rulesByType: Record<string, typeof manifest.rules[string][]> = {};
-  for (const rule of Object.values(manifest.rules ?? {})) {
-    (rulesByType[rule.type] ??= []).push(rule);
-  }
-  for (const type of ['Validation', 'Business', 'Security'] as const) {
-    const group = rulesByType[type];
-    if (!group?.length) continue;
-    lines.push(`## ${type} rules`, '');
-    for (const rule of group) {
-      const enforcement = manifest.enforcement.find(e => e.ruleId === rule.id);
-      const severity = enforcement ? ` _(${enforcement.severity})_` : '';
-      lines.push(`- **${rule.title}**${severity} — ${rule.message}`);
-    }
-    lines.push('');
-  }
-
   // ── Setup ────────────────────────────────────────────────────
   const envVars = new Set<string>();
   for (const rule of Object.values(manifest.rules ?? {})) {
@@ -126,10 +130,6 @@ export function buildReadmeFromManifest(manifest: Manifest): string {
     }
     lines.push('');
   }
-
-  // ── Diagrams ─────────────────────────────────────────────────
-  const diagrams = generateDiagramsSection(manifest);
-  if (diagrams) lines.push(diagrams);
 
   return lines.join('\n').trimEnd() + '\n';
 }
