@@ -1200,74 +1200,122 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         return { content: [{ type: 'text', text: 'Session log is empty.' }] };
       }
 
-      // Aggregate
-      const ruleHits: Record<string, { title: string; severity: string; count: number; fixed: number }> = {};
-      const fileHits: Record<string, { violations: number; fixed: boolean }> = {};
-      let totalViolations = 0;
-      let totalFixed = 0;
+      // Load manifest for plain-English rule descriptions
+      const manifestPath = path.join(input.project_root, 'manifest.json');
+      let manifestRules: Record<string, { title: string; message: string; type: string }> = {};
+      try {
+        const m = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+        manifestRules = m.rules ?? {};
+      } catch { /* proceed without — fall back to log titles */ }
 
+      // Aggregate
+      const ruleHits: Record<string, { title: string; message: string; type: string; severity: string; count: number; filesFixed: Set<string> }> = {};
+      const fileHits: Record<string, { violations: number; fixed: boolean }> = {};
       const violationFiles = new Set<string>();
+      let totalCaught = 0;
 
       for (const entry of entries) {
         if (entry.violations && entry.violations.length > 0) {
           violationFiles.add(entry.file);
           fileHits[entry.file] = fileHits[entry.file] ?? { violations: 0, fixed: false };
           fileHits[entry.file].violations += entry.violations.length;
-          totalViolations += entry.violations.length;
+          totalCaught += entry.violations.length;
 
           for (const v of entry.violations) {
-            if (!ruleHits[v.ruleId]) ruleHits[v.ruleId] = { title: v.title, severity: v.severity, count: 0, fixed: 0 };
+            if (!ruleHits[v.ruleId]) {
+              const manifest = manifestRules[v.ruleId];
+              ruleHits[v.ruleId] = {
+                title:      manifest?.title    ?? v.title,
+                message:    manifest?.message  ?? '',
+                type:       manifest?.type     ?? '',
+                severity:   v.severity,
+                count:      0,
+                filesFixed: new Set(),
+              };
+            }
             ruleHits[v.ruleId].count++;
           }
         } else if (entry.clean && violationFiles.has(entry.file)) {
           fileHits[entry.file].fixed = true;
-          totalFixed++;
-          // Credit the rules that were open for this file as fixed
+          // Credit any rules last triggered in this file as fixed
           const lastViolation = [...entries].reverse().find(e => e.file === entry.file && e.violations);
           if (lastViolation?.violations) {
             for (const v of lastViolation.violations) {
-              if (ruleHits[v.ruleId]) ruleHits[v.ruleId].fixed++;
+              ruleHits[v.ruleId]?.filesFixed.add(entry.file);
             }
           }
         }
       }
 
-      const firstTs = new Date(entries[0].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const lastTs = new Date(entries[entries.length - 1].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-      const filesWithViolations = Object.keys(fileHits).length;
-      const fixRate = filesWithViolations > 0 ? Math.round((totalFixed / filesWithViolations) * 100) : 100;
+      const firstTs  = new Date(entries[0].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const lastTs   = new Date(entries[entries.length - 1].ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+      const flagged  = Object.keys(fileHits).length;
+      const resolved = Object.values(fileHits).filter(f => f.fixed).length;
+      const allFixed = resolved === flagged;
+
+      // Plain-English severity → user impact
+      function impactLabel(severity: string): string {
+        switch (severity) {
+          case 'CRITICAL': return 'would have broken this feature entirely for users';
+          case 'HIGH':     return 'would have caused failures for most users';
+          case 'MEDIUM':   return 'would have caused incorrect behavior in some cases';
+          default:         return 'could have caused unexpected behavior in edge cases';
+        }
+      }
+
+      // Plain-English rule type label
+      function typeLabel(type: string): string {
+        switch (type) {
+          case 'Security':   return 'Security issue';
+          case 'Business':   return 'Logic issue';
+          case 'Validation': return 'Data issue';
+          default:           return 'Issue';
+        }
+      }
 
       const topRules = Object.entries(ruleHits)
         .sort((a, b) => b[1].count - a[1].count)
-        .slice(0, 8);
+        .slice(0, 6);
 
       const topFiles = Object.entries(fileHits)
         .sort((a, b) => b[1].violations - a[1].violations)
         .slice(0, 8);
 
+      // Headline summary
+      const resolvedNote = allFixed
+        ? `All ${flagged} affected file${flagged !== 1 ? 's' : ''} ${flagged === 1 ? 'has' : 'have'} been cleaned up.`
+        : `${resolved} of ${flagged} affected files cleaned up — ${flagged - resolved} still open.`;
+
       const lines = [
-        `## UpToCode Session Report`,
+        `## UpToCode Activity Report`,
         `_${firstTs} → ${lastTs}_`,
         ``,
-        `| | |`,
-        `|---|---|`,
-        `| Total violations caught | ${totalViolations} |`,
-        `| Files flagged | ${filesWithViolations} |`,
-        `| Files resolved | ${totalFixed} |`,
-        `| Resolution rate | ${fixRate}% |`,
+        `UpToCode caught **${totalCaught} issue${totalCaught !== 1 ? 's' : ''}** before they reached your users. ${resolvedNote}`,
         ``,
-        `### Most triggered rules`,
+        `### What was caught`,
+        ``,
       ];
 
       for (const [ruleId, info] of topRules) {
-        const fixNote = info.fixed > 0 ? ` _(${info.fixed} fixed)_` : '';
-        lines.push(`- **${ruleId}** [${info.severity}] — ${info.title} · ${info.count}×${fixNote}`);
+        const fixedCount = info.filesFixed.size;
+        const fixNote    = fixedCount > 0 ? `, ${fixedCount === info.count ? 'all' : fixedCount} fixed` : ', not yet fixed';
+        const label      = info.type ? typeLabel(info.type) : 'Issue';
+        const impact     = impactLabel(info.severity);
+
+        lines.push(`**${info.title}** — caught ${info.count}×${fixNote}`);
+        if (info.message) {
+          lines.push(`_${info.message}_`);
+        }
+        lines.push(`${label}: ${impact}.`);
+        lines.push(``);
       }
 
-      lines.push(``, `### Most flagged files`);
+      lines.push(`### Files`);
+      lines.push(``);
       for (const [file, info] of topFiles) {
-        const status = info.fixed ? '✓' : '○';
-        lines.push(`- ${status} \`${file}\` — ${info.violations} violation(s)`);
+        const status = info.fixed ? '✓ Fixed' : '○ Open';
+        const count  = `${info.violations} issue${info.violations !== 1 ? 's' : ''}`;
+        lines.push(`- ${status} — \`${file}\` (${count})`);
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
