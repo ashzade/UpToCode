@@ -34,6 +34,46 @@ jobs:
         with:
           project_root: ${{ github.workspace }}
 
+  regenerate:
+    name: Regenerate Spec & README
+    runs-on: ubuntu-latest
+    # Only run on push to main/master, not PRs (avoid re-entrancy from its own commit)
+    if: github.event_name == 'push'
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install UpToCode
+        run: |
+          git clone --depth 1 https://github.com/ashzade/UpToCode "$RUNNER_TEMP/uptocode"
+          cd "$RUNNER_TEMP/uptocode" && npm ci --silent
+
+      - name: Run regenerate
+        env:
+          PROJECT_ROOT: ${{ github.workspace }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          cd "$RUNNER_TEMP/uptocode"
+          node node_modules/.bin/ts-node --transpile-only ci/regenerate.ts
+
+      - name: Commit updated files
+        run: |
+          cd "${{ github.workspace }}"
+          git config user.name "uptocode[bot]"
+          git config user.email "uptocode[bot]@users.noreply.github.com"
+          git add requirements.md manifest.json README.md || true
+          git diff --cached --quiet || git commit -m "chore: regenerate spec and README [skip ci]"
+          git push
+
   generate-tests:
     name: Adversarial Tests
     runs-on: ubuntu-latest

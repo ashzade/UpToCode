@@ -20,7 +20,7 @@ You don't need to be a senior engineer or know the "right" professional processe
 
 * **No Expert Knowledge Needed**: You don't need to know how to set up version control, testing, or security reviews — UpToCode handles all of it and teaches you what it's doing along the way.
 * **Invisible Supervision**: There is no separate process to remember or "run"; UpToCode works automatically inside your Claude sessions to catch mistakes before they become expensive repairs.
-* **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, and dead code left behind after a refactor.
+* **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, dead code left behind after a refactor, and missing files that were imported but never created.
 * **Session-Start Auto-Fix**: At the start of every session, UpToCode scans the full codebase and automatically fixes any HIGH/CRITICAL violations before Claude responds to you. Catches and resolves drift from work done outside Claude — direct edits, migrations, or other tools — without you having to ask.
 * **Pre-Push Auto-Fix**: Before committing and pushing any code to GitHub, UpToCode runs a full inspection. If violations remain, Claude fixes them first — then pushes. Your GitHub history is always clean.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed.
@@ -33,11 +33,12 @@ You don't need to be a senior engineer or know the "right" professional processe
 ## 🏗️ What it does
 
 ### 1. The Inspector's Clipboard (Logic Enforcement)
-UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also catches TypeScript type errors before they reach your deploy, watches for new external services that aren't in your spec, and flags dead code left behind after a refactor.
+UpToCode turns your plain-English instructions into a **Smart Logic Engine**. Every time the AI edits a file, UpToCode checks the code to make sure it actually follows your instructions. It also catches TypeScript type errors before they reach your deploy, watches for new external services that aren't in your spec, flags dead code left behind after a refactor, and verifies that every file Claude claims to have created is actually there.
 > *"Your playbook says a user must pay before seeing this page. This code skips that check."*
 > *"TypeScript error in route.ts — 'details_verified' does not exist in type. Fix before deploying."*
 > *"New external provider detected — '@foursquare/api' is not in your spec. Say 'Update my spec to reflect this change' to sync it."*
 > *"'GooglePlaces' is declared in your spec but not imported anywhere. Say 'Clean up removed providers from my spec' to remove it."*
+> *"2 missing imports in checkout/route.ts — these files don't exist yet: ./lib/payments, ./hooks/useCart. Create the missing file(s) before finishing."*
 
 ### 2. The Stress Test (Adversarial Probing)
 UpToCode maps out every path a user can take to find the cracks where things usually break. It dreams up "what if" scenarios to make sure your app doesn't crumble when a user does something unexpected.
@@ -48,7 +49,7 @@ You define exactly who is allowed to touch what data. UpToCode scans for securit
 > *"CRITICAL: This dashboard route is writing to a table only the system should touch."*
 
 ### 4. Foundation Health (Live Monitoring)
-Once you ship, UpToCode monitors your live database for technical "drift" or stuck records that signal your logic is failing in the real world.
+Once you ship, UpToCode monitors your live database for technical "drift" or stuck records that signal your logic is failing in the real world. Works with both SQLite and Postgres — for Postgres projects, it reads your `DATABASE_URL` automatically.
 > *"16 users are 'Active' status but missing Stripe IDs. The foundation is failing."*
 
 ---

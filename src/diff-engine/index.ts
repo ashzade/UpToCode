@@ -1,23 +1,31 @@
 import { Manifest } from '../types';
 import { CodeFile, ContractDiffResult, SpecDriftResult } from './types';
 import { buildCodeIndex } from './code-index';
-import { detectViolations } from './detectors';
+import { detectViolations, detectOrphanedImplementations } from './detectors';
 import { diffManifests } from './spec-diff';
 import { buildRefactorPlan } from './planner';
 
 export function contractDiff(manifest: Manifest, files: CodeFile[]): ContractDiffResult {
   const index = buildCodeIndex(files);
   const violations = detectViolations(manifest, files, index);
+  const orphaned = detectOrphanedImplementations(manifest, files);
   const allRuleIds = Object.keys(manifest.rules);
   const violatedIds = violations.map(v => v.ruleId);
   const passed = allRuleIds.filter(id => !violatedIds.includes(id));
+
+  const parts: string[] = [];
+  if (violations.length > 0) parts.push(`${violations.length} violation${violations.length !== 1 ? 's' : ''}`);
+  if (orphaned.length > 0) parts.push(`${orphaned.length} orphaned route${orphaned.length !== 1 ? 's' : ''}`);
+  if (parts.length === 0) parts.push('✓ All rules passed');
+  parts.push(`${passed.length} rule${passed.length !== 1 ? 's' : ''} passed`);
 
   return {
     check: 'contract_diff',
     manifestVersion: manifest.meta.version,
     violations,
     passed,
-    summary: `${violations.length} violation${violations.length !== 1 ? 's' : ''} found. ${passed.length} rule${passed.length !== 1 ? 's' : ''} passed.`
+    orphaned,
+    summary: parts.join('. ') + '.',
   };
 }
 

@@ -71,6 +71,28 @@ function resolveTarget(
     return resolveTransition(from, to, fileLines);
   }
 
+  // File(pattern) — match files whose path contains the given substring
+  const fileMatch = target.match(/^File\((.+)\)$/);
+  if (fileMatch) {
+    const pattern = fileMatch[1].toLowerCase();
+    for (const [path] of fileLines) {
+      if (path.toLowerCase().includes(pattern)) {
+        results.push({ file: path, line: 1 });
+      }
+    }
+    return results;
+  }
+
+  // Bare filename or path fragment (e.g. 'processor.py' written by injectScopes).
+  // Fall back to matching by basename or path suffix.
+  const targetLower = target.toLowerCase();
+  for (const [fp] of fileLines) {
+    const basename = (fp.split('/').pop() ?? fp).toLowerCase();
+    if (basename === targetLower || fp.toLowerCase().endsWith('/' + targetLower)) {
+      results.push({ file: fp, line: 1 });
+    }
+  }
+
   return results;
 }
 

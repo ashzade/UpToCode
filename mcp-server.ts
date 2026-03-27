@@ -9,6 +9,7 @@ import {
 import { z } from 'zod';
 import { parse } from './src/index';
 import { contractDiff, specDrift } from './src/diff-engine/index';
+import { findGuardedScope, getRuleScope } from './src/diff-engine/detectors';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
 import { analyzeCode } from './src/interview/code-analyzer';
@@ -18,8 +19,8 @@ import { securityAudit, renderSecurityReport } from './src/security/access-audit
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
-import { generateProjectReadme } from './src/interview/readme-generator';
-import { enrichRequirements, injectScopes } from './src/enrich';
+import { generateProjectReadme, buildReadmeFromManifest } from './src/interview/readme-generator';
+import { injectScopes } from './src/enrich';
 
 function writeReadmeHash(projectRoot: string, requirementsContent: string): void {
   const dir = path.join(projectRoot, '.uptocode');
@@ -74,9 +75,10 @@ const FinishInterviewInput = z.object({
 });
 
 const ScaleMonitorInput = z.object({
-  project_root: z.string().optional().describe('Project directory — manifest.json and *.db file are auto-discovered here'),
+  project_root: z.string().optional().describe('Project directory — manifest.json is auto-discovered here'),
   manifest_path: z.string().optional().describe('Explicit path to manifest.json'),
   db_path: z.string().optional().describe('Explicit path to SQLite database file'),
+  database_url: z.string().optional().describe('Postgres connection string (postgres://...). Falls back to DATABASE_URL env var in the project'),
   output_path: z.string().optional().describe('Where to write the report. Defaults to <project_root>/scale-report.md'),
 });
 
@@ -120,6 +122,13 @@ const GenerateSpecInput = z.object({
   feature_name: z.string().optional().describe('Human-readable feature name (e.g. "Document Processing")'),
   owner: z.string().optional().describe('Owner name or handle'),
   output_path: z.string().optional().describe('Where to write requirements.md. Defaults to <project_root>/requirements.md'),
+});
+
+const RegenerateInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory'),
+  description: z.string().optional().describe('Optional plain-English description passed to generate-spec'),
+  feature_name: z.string().optional().describe('Optional feature name passed to generate-spec'),
+  owner: z.string().optional().describe('Optional owner handle'),
 });
 
 // ── Helper: apply-fix hint builder ──────────────────────────────
@@ -334,13 +343,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       {
         name: 'scale-monitor',
         description:
-          'Query a live SQLite database and evaluate health checks derived from the manifest: entity state distribution, computed property values, FK integrity, and record volumes. Pass project_root to auto-discover manifest.json and the .db file. Flags backlogs, failure rates, and orphaned records.',
+          'Query a live database (SQLite or Postgres) and evaluate health checks derived from the manifest: entity state distribution, computed property values, FK integrity, and record volumes. Pass project_root to auto-discover manifest.json. For Postgres projects, reads DATABASE_URL from the project .env file automatically. Flags backlogs, failure rates, and orphaned records.',
         inputSchema: {
           type: 'object',
           properties: {
-            project_root: { type: 'string', description: 'Project directory — manifest.json and *.db file are auto-discovered here' },
+            project_root: { type: 'string', description: 'Project directory — manifest.json is auto-discovered here' },
             manifest_path: { type: 'string', description: 'Explicit path to manifest.json' },
             db_path: { type: 'string', description: 'Explicit path to SQLite database file' },
+            database_url: { type: 'string', description: 'Postgres connection string (postgres://...). Falls back to DATABASE_URL in project .env' },
             output_path: { type: 'string', description: 'Output path for the report (default: <project_root>/scale-report.md)' },
           },
         },
@@ -422,6 +432,21 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
           },
           required: ['base_manifest_path', 'head_manifest_path', 'code_paths'],
+        },
+      },
+      {
+        name: 'regenerate',
+        description:
+          'Full project regeneration in one shot: generate-spec → compile-spec → contract-diff. Rewrites requirements.md from the codebase, compiles manifest.json and README.md, then checks for rule violations and orphaned routes. Returns a combined report.',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory' },
+            description: { type: 'string', description: 'Optional plain-English description of what the feature does' },
+            feature_name: { type: 'string', description: 'Optional human-readable feature name' },
+            owner: { type: 'string', description: 'Optional owner name or handle' },
+          },
+          required: ['project_root'],
         },
       },
       {
@@ -554,13 +579,12 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const manifestPath = path.join(dir, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
-      // Enrich requirements.md with plain-English descriptions
-      const enriched = enrichRequirements(requirementsContent, manifest);
-      if (enriched !== requirementsContent) {
-        fs.writeFileSync(requirementsPath, enriched, 'utf-8');
-      }
+      // Always regenerate README.md from the compiled manifest
+      const readmePath = path.join(dir, 'README.md');
+      const readme = buildReadmeFromManifest(manifest);
+      fs.writeFileSync(readmePath, readme, 'utf-8');
 
-      const summaryLine = `✓ manifest.json written to ${dir}`;
+      const summaryLine = `✓ manifest.json and README.md written to ${dir}`;
       const text = `${JSON.stringify(manifest, null, 2)}\n\n${summaryLine}`;
 
       return {
@@ -620,21 +644,154 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         content: fs.readFileSync(p, 'utf-8'),
       }));
 
-      const result = contractDiff(manifest, files);
+      let result = contractDiff(manifest, files);
+
+      // Auto-scope: for unscoped rules with violations, infer scope from handlers
+      // that already have the guard implemented, update requirements.md + recompile.
+      let autoFixReport = '';
+      if (result.violations.length > 0 && input.project_root) {
+        const requirementsPath = path.join(input.project_root, 'requirements.md');
+        if (fs.existsSync(requirementsPath)) {
+          let requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+          const fixes: string[] = [];
+
+          for (const violation of result.violations) {
+            const rule = manifest.rules[violation.ruleId];
+            if (!rule) continue;
+            if (getRuleScope(rule).length > 0) continue; // already scoped
+
+            const suggestedScope = findGuardedScope(rule, files);
+            if (suggestedScope.length === 0) continue;
+
+            requirementsContent = injectScopes(requirementsContent, {
+              [violation.ruleId]: { scope: suggestedScope },
+            });
+            fixes.push(`${violation.ruleId} → Scope: ${suggestedScope.join(', ')}`);
+          }
+
+          if (fixes.length > 0) {
+            fs.writeFileSync(requirementsPath, requirementsContent, 'utf-8');
+            const newManifest = parse(requirementsContent);
+            fs.writeFileSync(manifestPath, JSON.stringify(newManifest, null, 2), 'utf-8');
+            result = contractDiff(newManifest, files);
+            autoFixReport = `\n\n🔧 Auto-scoped ${fixes.length} rule(s):\n${fixes.map(f => `  • ${f}`).join('\n')}\nrequirements.md and manifest.json updated automatically.`;
+          }
+        }
+      }
 
       let summary: string;
-      if (result.violations.length === 0) {
+      if (result.violations.length === 0 && result.orphaned.length === 0) {
         const nudge = input.project_root ? gitNudge(input.project_root) : '';
         summary = `✓ All rules passed.${nudge}`;
       } else {
-        summary = `Found ${result.violations.length} violation(s). ${result.passed.length} rule(s) passed.`;
+        const parts: string[] = [];
+        if (result.violations.length > 0) parts.push(`${result.violations.length} violation(s)`);
+        if (result.orphaned.length > 0) parts.push(`${result.orphaned.length} orphaned route(s) — endpoints serving entities removed from the spec`);
+        summary = `Found ${parts.join(' and ')}. ${result.passed.length} rule(s) passed.`;
       }
 
-      const text = `${summary}\n\n${JSON.stringify(result, null, 2)}`;
+      const text = `${summary}${autoFixReport}\n\n${JSON.stringify(result, null, 2)}`;
 
       return {
         content: [{ type: 'text', text }],
       };
+    }
+
+    // ── regenerate ────────────────────────────────────────────
+    if (name === 'regenerate') {
+      const input = RegenerateInput.parse(args);
+      const apiKey = process.env.ANTHROPIC_API_KEY;
+      if (!apiKey) throw new Error('ANTHROPIC_API_KEY environment variable not set');
+
+      const sections: string[] = [];
+
+      // 1. generate-spec
+      sections.push('## Step 1: generate-spec');
+      const codeFiles = walkCodeFiles(input.project_root).map(p => ({
+        path: p,
+        content: fs.readFileSync(p, 'utf-8'),
+      }));
+      if (codeFiles.length === 0) throw new Error(`No .py/.ts/.js files found in ${input.project_root}`);
+      const analysis = analyzeCode(codeFiles);
+      const specResult = await generateSpec({ analysis, description: input.description, featureName: input.feature_name, owner: input.owner, apiKey });
+      const requirementsPath = path.join(input.project_root, 'requirements.md');
+      fs.writeFileSync(requirementsPath, specResult.spec, 'utf-8');
+      sections.push(`✓ requirements.md written (${specResult.spec.split('\n').length} lines)`);
+
+      // 2. compile-spec
+      sections.push('\n## Step 2: compile-spec');
+      let requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
+      const existingManifestPath = path.join(input.project_root, 'manifest.json');
+      if (fs.existsSync(existingManifestPath)) {
+        try {
+          const existing = JSON.parse(fs.readFileSync(existingManifestPath, 'utf-8'));
+          if (existing.rules) {
+            const migrated = injectScopes(requirementsContent, existing.rules);
+            if (migrated !== requirementsContent) requirementsContent = migrated;
+          }
+        } catch { /* non-fatal */ }
+      }
+      const manifest = parse(requirementsContent);
+      fs.writeFileSync(existingManifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
+      const readmePath = path.join(input.project_root, 'README.md');
+      fs.writeFileSync(readmePath, buildReadmeFromManifest(manifest), 'utf-8');
+      const entityCount = Object.keys(manifest.dataModel).length;
+      const ruleCount = Object.keys(manifest.rules).length;
+      sections.push(`✓ manifest.json written (${entityCount} entities, ${ruleCount} rules)`);
+      sections.push(`✓ README.md written`);
+
+      // 3. contract-diff
+      sections.push('\n## Step 3: contract-diff');
+      const files: CodeFile[] = walkCodeFiles(input.project_root).map(p => ({
+        path: p,
+        content: fs.readFileSync(p, 'utf-8'),
+      }));
+      let diffResult = contractDiff(manifest, files);
+
+      // Auto-scope
+      let autoFixReport = '';
+      if (diffResult.violations.length > 0) {
+        let reqContent = fs.readFileSync(requirementsPath, 'utf-8');
+        const fixes: string[] = [];
+        for (const violation of diffResult.violations) {
+          const rule = manifest.rules[violation.ruleId];
+          if (!rule || getRuleScope(rule).length > 0) continue;
+          const suggestedScope = findGuardedScope(rule, files);
+          if (suggestedScope.length === 0) continue;
+          reqContent = injectScopes(reqContent, { [violation.ruleId]: { scope: suggestedScope } });
+          fixes.push(`${violation.ruleId} → Scope: ${suggestedScope.join(', ')}`);
+        }
+        if (fixes.length > 0) {
+          fs.writeFileSync(requirementsPath, reqContent, 'utf-8');
+          const newManifest = parse(reqContent);
+          fs.writeFileSync(existingManifestPath, JSON.stringify(newManifest, null, 2), 'utf-8');
+          diffResult = contractDiff(newManifest, files);
+          autoFixReport = `\n🔧 Auto-scoped: ${fixes.join(', ')}`;
+        }
+      }
+
+      const vCount = diffResult.violations.length;
+      const oCount = diffResult.orphaned.length;
+      const pCount = diffResult.passed.length;
+      if (vCount === 0 && oCount === 0) {
+        sections.push(`✓ All ${pCount} rules passed. No orphaned routes.`);
+      } else {
+        if (vCount > 0) sections.push(`⚠ ${vCount} violation(s) found`);
+        if (oCount > 0) sections.push(`⚠ ${oCount} orphaned route(s) found`);
+        sections.push(`✓ ${pCount} rules passed`);
+      }
+      if (autoFixReport) sections.push(autoFixReport);
+
+      const text = [
+        `# Regenerate: ${path.basename(input.project_root)}`,
+        '',
+        sections.join('\n'),
+        '',
+        '---',
+        JSON.stringify({ violations: diffResult.violations, orphaned: diffResult.orphaned, passed: diffResult.passed }, null, 2),
+      ].join('\n');
+
+      return { content: [{ type: 'text', text }] };
     }
 
     // ── generate-spec ─────────────────────────────────────────
@@ -686,20 +843,33 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         ?? (input.project_root ? path.join(input.project_root, 'manifest.json') : null);
       if (!manifestPath) throw new Error('Provide project_root or manifest_path');
 
-      // Auto-discover SQLite DB in project_root
-      let dbPath = input.db_path;
-      if (!dbPath && input.project_root) {
+      // Resolve database connection: explicit postgres URL > explicit db_path >
+      // DATABASE_URL from project .env > auto-discover SQLite file
+      let dbConnection = input.database_url ?? input.db_path;
+
+      if (!dbConnection && input.project_root) {
+        // Try reading DATABASE_URL from project .env
+        const envFile = path.join(input.project_root, '.env');
+        if (fs.existsSync(envFile)) {
+          const envContent = fs.readFileSync(envFile, 'utf-8');
+          const match = envContent.match(/^DATABASE_URL\s*=\s*["']?([^\s"'\n]+)["']?/m);
+          if (match) dbConnection = match[1];
+        }
+      }
+
+      if (!dbConnection && input.project_root) {
+        // Fall back to auto-discovering a SQLite file
         const candidates = fs.readdirSync(input.project_root)
           .filter(f => /\.(db|sqlite|sqlite3)$/.test(f))
           .map(f => path.join(input.project_root!, f));
-        if (candidates.length === 0) throw new Error(`No .db/.sqlite file found in ${input.project_root}`);
-        if (candidates.length > 1) throw new Error(`Multiple DB files found — specify db_path: ${candidates.join(', ')}`);
-        dbPath = candidates[0];
+        if (candidates.length === 1) dbConnection = candidates[0];
+        else if (candidates.length > 1) throw new Error(`Multiple DB files found — specify db_path: ${candidates.join(', ')}`);
       }
-      if (!dbPath) throw new Error('Provide project_root or db_path');
+
+      if (!dbConnection) throw new Error('No database found. Provide database_url, db_path, or a project_root with a .env containing DATABASE_URL');
 
       const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-      const result = runScaleMonitor(manifest, dbPath);
+      const result = await runScaleMonitor(manifest, dbConnection);
       const report = renderScaleReport(result);
 
       const outputPath = input.output_path

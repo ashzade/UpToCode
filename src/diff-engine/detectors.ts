@@ -1,5 +1,5 @@
 import { Manifest, Rule, EnforcementDirective } from '../types';
-import { CodeFile, CodeIndex, Violation } from './types';
+import { CodeFile, CodeIndex, OrphanedImplementation, Violation } from './types';
 
 /**
  * Extract meaningful searchable tokens from a predicate condition string.
@@ -191,9 +191,36 @@ function hasEnvVarAccess(varName: string, fileContent: string): boolean {
  * in the base types.ts, but the manifest JSON may include one at runtime.
  * We use a type assertion to access it if present.
  */
-function getRuleScope(rule: Rule): string[] {
+export function getRuleScope(rule: Rule): string[] {
   const r = rule as Rule & { scope?: string[] };
   return r.scope || [];
+}
+
+/**
+ * Returns true if the handler at handlerLineIdx is a read-only operation.
+ * Read-only handlers (GET routes, query/fetch functions) don't need write guards,
+ * so business rules should not be flagged against them.
+ */
+function isReadOnlyHandler(lines: string[], handlerLineIdx: number, language: 'python' | 'ts-js'): boolean {
+  if (language === 'python') {
+    const funcLine = lines[handlerLineIdx] ?? '';
+    const funcMatch = funcLine.match(/^def\s+(\w+)\s*\(/);
+    if (funcMatch) {
+      const name = funcMatch[1].toLowerCase();
+      if (/^(get_|fetch_|list_|read_|_get|api_get|api_list)/.test(name)) return true;
+    }
+    // Check Flask route decorators in the 5 preceding lines
+    for (let j = Math.max(0, handlerLineIdx - 5); j < handlerLineIdx; j++) {
+      const dec = (lines[j] ?? '').trim();
+      if (dec.startsWith('@') && dec.includes('.route(')) {
+        if (!dec.includes('methods')) return true;          // Flask default is GET-only
+        if (/methods\s*=\s*\[['"]GET['"]\]/.test(dec)) return true;
+      }
+    }
+  } else {
+    if (/\b(router|app)\.get\s*\(/.test(lines[handlerLineIdx] ?? '')) return true;
+  }
+  return false;
 }
 
 /**
@@ -364,6 +391,9 @@ export function detectBusinessViolation(
         );
 
         if (!hasGuard) {
+          // Skip read-only handlers — business guards belong on write/process operations
+          if (isReadOnlyHandler(lines, handlerLine - 1, lang)) continue;
+
           const responses = enforcement.responses.map(r => r.action);
           return {
             ruleId: rule.id,
@@ -382,6 +412,42 @@ export function detectBusinessViolation(
   }
 
   return null;
+}
+
+/**
+ * Scan all files to find handlers that already have a correct guard for the rule.
+ * Returns file basenames (e.g. ['processor.py']) where the guard exists.
+ * Used by contract-diff to auto-scope rules that produce false positives.
+ */
+export function findGuardedScope(rule: Rule, files: CodeFile[]): string[] {
+  const envTerms = extractEnvTerms(rule.condition);
+  const fieldTerms = extractConditionTerms(rule.condition).filter(t =>
+    (t.includes('_') || /^[a-z]/.test(t)) && !envTerms.includes(t)
+  );
+  if (fieldTerms.length === 0) return [];
+
+  const guardedBasenames = new Set<string>();
+
+  for (const file of files) {
+    const lang = detectLanguage(file.path);
+    const lines = file.content.split('\n');
+    const handlerLines = findHandlerLines(lines, lang);
+
+    for (const handlerLine of handlerLines) {
+      const handlerBody = extractHandlerBodyLang(lines, handlerLine - 1, lang);
+      const codeBody = lang === 'python' ? stripSqlStrings(handlerBody) : handlerBody;
+
+      const termsPresent = fieldTerms.some(term =>
+        new RegExp(`\\b${escapeRegex(term)}\\b`, 'i').test(codeBody)
+      );
+      if (termsPresent && fieldTerms.some(term => hasGuardOnTerm(codeBody, term, lang))) {
+        const basename = file.path.split('/').pop();
+        if (basename) guardedBasenames.add(basename);
+      }
+    }
+  }
+
+  return [...guardedBasenames];
 }
 
 /**
@@ -655,6 +721,118 @@ export function detectViolations(
   }
 
   return violations;
+}
+
+/**
+ * Paths that are utility/action endpoints, not entity CRUD routes.
+ * These should never be flagged as orphaned even if they don't match a data model entity.
+ */
+const UTILITY_PATH_SEGMENTS = new Set([
+  'search', 'brief', 'stats', 'health', 'status', 'me', 'auth', 'login',
+  'logout', 'refresh', 'upload', 'download', 'export', 'import', 'webhook',
+  'process', 'run', 'batch', 'sync', 'test', 'ping', 'version', 'config',
+  'insights', 'summary', 'report', 'dashboard', 'feed', 'recent', 'activity',
+  'bulk', 'debug', 'metrics', 'suggest', 'detect', 'analyze', 'complete',
+  'resolve', 'dismiss', 'merge', 'revalidate', 'hierarchy', 'weekly', 'count',
+  'log', 'logs', 'trigger', 'reset', 'verify', 'confirm', 'notify',
+]);
+
+const IRREGULAR_PLURALS: Record<string, string> = {
+  analyses: 'analysis',
+  entities: 'entity',
+  histories: 'history',
+  indices: 'index',
+  matrices: 'matrix',
+  vertices: 'vertex',
+  aliases: 'alias',
+  crises: 'crisis',
+  theses: 'thesis',
+};
+
+function singularize(s: string): string {
+  if (IRREGULAR_PLURALS[s]) return IRREGULAR_PLURALS[s];
+  if (s.endsWith('ies') && s.length > 4) return s.slice(0, -3) + 'y';
+  if (s.endsWith('ses') || s.endsWith('xes') || s.endsWith('zes')) return s.slice(0, -2);
+  if (s.endsWith('s') && !s.endsWith('ss') && s.length > 2) return s.slice(0, -1);
+  return s;
+}
+
+function resourceToPascalCase(s: string): string {
+  return s.split('_').map(p => p.charAt(0).toUpperCase() + p.slice(1)).join('');
+}
+
+/**
+ * Extract the first meaningful path segment from a route definition.
+ * e.g. "/api/v1/tags/<id>/details" → "tags"
+ */
+function extractResourceSegment(routePath: string): string | null {
+  const segments = routePath.split('/').filter(Boolean);
+  for (const seg of segments) {
+    const clean = seg.split('?')[0];
+    if (!clean || clean.startsWith('<') || clean.startsWith(':')) continue;
+    if (clean === 'api' || /^v\d+$/.test(clean)) continue;
+    return clean.replace(/-/g, '_');
+  }
+  return null;
+}
+
+/**
+ * Scan all routes in code files and flag any that serve a resource not present
+ * in the manifest data model. This catches UI/API dead code left behind after
+ * entities are removed from the spec.
+ */
+export function detectOrphanedImplementations(
+  manifest: Manifest,
+  files: CodeFile[]
+): OrphanedImplementation[] {
+  // Build lookup: normalized (no underscores, lowercase) entity names
+  const knownEntities = new Set(
+    Object.keys(manifest.dataModel).map(n => n.toLowerCase().replace(/_/g, ''))
+  );
+
+  const seenResources = new Set<string>();
+  const orphaned: OrphanedImplementation[] = [];
+
+  for (const file of files) {
+    const lang = detectLanguage(file.path);
+    const lines = file.content.split('\n');
+
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+
+      let routePath: string | null = null;
+      if (lang === 'python') {
+        const m = line.match(/@\w+\.route\s*\(\s*['"]([^'"]+)['"]/);
+        if (m) routePath = m[1];
+      } else {
+        const m = line.match(/(?:router|app)\.\w+\s*\(\s*['"`]([^'"`]+)['"`]/);
+        if (m) routePath = m[1];
+      }
+
+      if (!routePath) continue;
+
+      const segment = extractResourceSegment(routePath);
+      if (!segment) continue;
+      if (UTILITY_PATH_SEGMENTS.has(segment)) continue;
+      if (seenResources.has(segment)) continue;
+
+      const singular = singularize(segment);
+      const normalized = singular.replace(/_/g, '').toLowerCase();
+
+      if (!knownEntities.has(normalized)) {
+        seenResources.add(segment);
+        orphaned.push({
+          type: 'route',
+          resource: segment,
+          location: { file: file.path, line: i + 1 },
+          description: `Route '${routePath}' serves '${segment}' which has no matching entity in the data model.`,
+          fixHint: `Remove this endpoint (and any UI that calls it), or add '${resourceToPascalCase(singular)}' to the data model in requirements.md.`,
+        });
+      }
+    }
+  }
+
+  return orphaned;
 }
 
 function toCamelCase(s: string): string {

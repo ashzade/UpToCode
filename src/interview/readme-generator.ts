@@ -3,10 +3,136 @@
  *
  * Reads requirements.md and calls Claude to produce a friendly, non-technical
  * README describing what the app does, who it's for, and how to get started.
+ *
+ * Also exports buildReadmeFromManifest — a deterministic, zero-latency version
+ * used as a compile-spec side effect to keep README.md always in sync.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
 import { Manifest } from '../types';
+import { generateDiagramsSection } from './diagram-generator';
+
+/**
+ * Build a structured README.md from a compiled manifest with no LLM call.
+ * Called automatically by compile-spec so the README is always current.
+ */
+export function buildReadmeFromManifest(manifest: Manifest): string {
+  const lines: string[] = [];
+  const { name, intent } = manifest.feature;
+
+  // ── Title & intent ───────────────────────────────────────────
+  lines.push(`# ${name}`, '');
+  if (intent) lines.push(intent, '');
+
+  // ── Integrations ─────────────────────────────────────────────
+  const providers = Object.entries(manifest.externalProviders ?? {});
+  if (providers.length > 0) {
+    lines.push('## Integrations', '');
+    for (const [pname, p] of providers) {
+      lines.push(`- **${pname}** — ${p.provides}`);
+    }
+    lines.push('');
+  }
+
+  // ── Data model ───────────────────────────────────────────────
+  const entities = Object.entries(manifest.dataModel ?? {});
+  if (entities.length > 0) {
+    lines.push('## Data model', '');
+    for (const [ename, entity] of entities) {
+      if (entity.description || entity.notes) {
+        lines.push(`### ${ename}`, '');
+        if (entity.description) lines.push(entity.description, '');
+        if (entity.notes) lines.push(entity.notes, '');
+        const keyFields = Object.values(entity.fields ?? {})
+          .filter(f => f.modifiers.some(m => ['primary', 'required'].includes(m.name)))
+          .slice(0, 4)
+          .map(f => f.name);
+        if (keyFields.length > 0) {
+          lines.push(`Key fields: ${keyFields.join(', ')}`, '');
+        }
+      } else {
+        const fieldCount = Object.keys(entity.fields ?? {}).length;
+        const keyFields = Object.values(entity.fields ?? {})
+          .filter(f => f.modifiers.some(m => ['required', 'primary'].includes(m.name)))
+          .slice(0, 3)
+          .map(f => f.name);
+        const hint = keyFields.length > 0 ? ` (${keyFields.join(', ')})` : ` (${fieldCount} fields)`;
+        lines.push(`- **${ename}**${hint}`);
+      }
+    }
+    lines.push('');
+  }
+
+  // ── Lifecycle ────────────────────────────────────────────────
+  const sm = manifest.stateMachine;
+  if (sm?.transitions?.length > 0) {
+    lines.push('## Lifecycle', '');
+    const states = Object.entries(sm.states ?? {});
+    if (states.length > 0) {
+      for (const [state, desc] of states) {
+        lines.push(`- **${state}** — ${desc}`);
+      }
+      lines.push('');
+    }
+    for (const t of sm.transitions) {
+      const guard = t.guard ? ` _(guard: ${t.guard})_` : '';
+      lines.push(`- ${t.from} → **${t.to}**: ${t.trigger ?? 'automatic'}${guard}`);
+    }
+    lines.push('');
+  }
+
+  // ── Actors ───────────────────────────────────────────────────
+  const actors = Object.entries(manifest.actors ?? {});
+  if (actors.length > 0) {
+    lines.push('## Actors', '');
+    for (const [aname, actor] of actors) {
+      const writes = Array.isArray(actor.write)
+        ? actor.write.join(', ')
+        : actor.write === '*' ? 'everything' : 'nothing';
+      lines.push(`- **${aname}** — writes: ${writes}`);
+    }
+    lines.push('');
+  }
+
+  // ── Rules ────────────────────────────────────────────────────
+  const rulesByType: Record<string, typeof manifest.rules[string][]> = {};
+  for (const rule of Object.values(manifest.rules ?? {})) {
+    (rulesByType[rule.type] ??= []).push(rule);
+  }
+  for (const type of ['Validation', 'Business', 'Security'] as const) {
+    const group = rulesByType[type];
+    if (!group?.length) continue;
+    lines.push(`## ${type} rules`, '');
+    for (const rule of group) {
+      const enforcement = manifest.enforcement.find(e => e.ruleId === rule.id);
+      const severity = enforcement ? ` _(${enforcement.severity})_` : '';
+      lines.push(`- **${rule.title}**${severity} — ${rule.message}`);
+    }
+    lines.push('');
+  }
+
+  // ── Setup ────────────────────────────────────────────────────
+  const envVars = new Set<string>();
+  for (const rule of Object.values(manifest.rules ?? {})) {
+    for (const m of (rule.condition ?? '').matchAll(/env\(([^)]+)\)/g)) {
+      envVars.add(m[1]);
+    }
+  }
+  if (envVars.size > 0) {
+    lines.push('## Setup', '');
+    lines.push('Required environment variables:', '');
+    for (const v of envVars) {
+      lines.push(`- \`${v}\``);
+    }
+    lines.push('');
+  }
+
+  // ── Diagrams ─────────────────────────────────────────────────
+  const diagrams = generateDiagramsSection(manifest);
+  if (diagrams) lines.push(diagrams);
+
+  return lines.join('\n').trimEnd() + '\n';
+}
 
 function buildPrompt(requirementsContent: string, projectName: string): string {
   return `You are writing a README.md for a software project. The project is described in the spec below.

@@ -83,50 +83,79 @@ export function parseDataModel(content: string): Record<string, Entity> {
 
   let currentEntity: string | null = null;
   let currentFields: Record<string, Field> = {};
+  let currentDescription: string | undefined;
+  let currentNoteLines: string[] = [];
+  let hasFields = false;
+
+  const flushEntity = () => {
+    if (!currentEntity) return;
+    const notes = currentNoteLines.join('\n').trim() || undefined;
+    entities[currentEntity] = { description: currentDescription, notes, fields: currentFields };
+  };
 
   for (const line of lines) {
     const trimmed = line.trim();
-    if (!trimmed) continue;
 
     if (trimmed.startsWith('### ')) {
-      if (currentEntity) {
-        entities[currentEntity] = { fields: currentFields };
-      }
+      flushEntity();
       currentEntity = trimmed.slice(4).trim();
       currentFields = {};
+      currentDescription = undefined;
+      currentNoteLines = [];
+      hasFields = false;
       continue;
     }
 
     if (!currentEntity) continue;
+    if (!trimmed) {
+      // preserve blank lines within notes (before any field appears)
+      if (!hasFields && currentNoteLines.length > 0) currentNoteLines.push('');
+      continue;
+    }
 
-    // Field line: "field_name: ..."
-    // Must contain a colon and not start with a heading marker
+    // Entity summary line: _Short one-liner._
+    const italicMatch = trimmed.match(/^_(.+)_$/);
+    if (italicMatch && !hasFields) {
+      currentDescription = italicMatch[1].trim();
+      continue;
+    }
+
+    // Skip blockquote lines (> ...) — legacy enrichRequirements output
+    if (trimmed.startsWith('>')) continue;
+
+    // Skip heading markers inside an entity block
     if (trimmed.startsWith('#')) continue;
 
     const colonIdx = trimmed.indexOf(':');
-    if (colonIdx === -1) continue;
 
-    // Make sure the part before the colon looks like a field name (snake_case)
-    const fieldName = trimmed.slice(0, colonIdx).trim();
-    if (!/^[a-z_][a-z0-9_]*$/.test(fieldName)) continue;
+    // Check if this is a field line: field_name: type | ...
+    if (colonIdx !== -1) {
+      const fieldName = trimmed.slice(0, colonIdx).trim();
+      if (/^[a-z_][a-z0-9_]*$/.test(fieldName)) {
+        const rest = trimmed.slice(colonIdx + 1).trim();
+        if (rest) {
+          hasFields = true;
+          try {
+            currentFields[fieldName] = parseField(fieldName, rest);
+          } catch (e) {
+            throw new ParseError(
+              `Failed to parse field "${fieldName}": ${(e as Error).message}`,
+              undefined,
+              'Data Model'
+            );
+          }
+          continue;
+        }
+      }
+    }
 
-    const rest = trimmed.slice(colonIdx + 1).trim();
-    if (!rest) continue;
-
-    try {
-      currentFields[fieldName] = parseField(fieldName, rest);
-    } catch (e) {
-      throw new ParseError(
-        `Failed to parse field "${fieldName}": ${(e as Error).message}`,
-        undefined,
-        'Data Model'
-      );
+    // Anything else before the first field is notes prose
+    if (!hasFields) {
+      currentNoteLines.push(trimmed);
     }
   }
 
-  if (currentEntity) {
-    entities[currentEntity] = { fields: currentFields };
-  }
+  flushEntity();
 
   return entities;
 }

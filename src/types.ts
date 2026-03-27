@@ -80,6 +80,8 @@ export interface Field {
 }
 
 export interface Entity {
+  description?: string;   // one-line italic summary: _Short description._
+  notes?: string;         // extended prose before the first field line
   fields: Record<string, Field>;
 }
 

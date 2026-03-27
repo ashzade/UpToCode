@@ -38,28 +38,62 @@ export interface ScaleReport {
   summary: string;
 }
 
-// ── SQLite query execution ───────────────────────────────────────────────────
+// ── Database connection ───────────────────────────────────────────────────────
 
-function runQuery(dbPath: string, sql: string): number | null {
-  try {
+type QueryFn = (sql: string) => Promise<number | null>;
+
+function isPostgresUrl(s: string): boolean {
+  return s.startsWith('postgres://') || s.startsWith('postgresql://');
+}
+
+async function openConnection(dbConnection: string): Promise<{ query: QueryFn; close: () => Promise<void> }> {
+  if (isPostgresUrl(dbConnection)) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const { DatabaseSync } = require('node:sqlite') as {
-      DatabaseSync: new (path: string) => {
-        prepare: (sql: string) => { get: () => Record<string, unknown> };
-        close: () => void;
+    const { Client } = require('pg') as {
+      Client: new (cfg: { connectionString: string }) => {
+        connect: () => Promise<void>;
+        query: (sql: string) => Promise<{ rows: Record<string, unknown>[] }>;
+        end: () => Promise<void>;
       };
     };
-    const db = new DatabaseSync(dbPath);
-    try {
-      const row = db.prepare(sql).get();
-      if (!row) return 0;
-      const val = Object.values(row)[0];
-      return typeof val === 'number' ? val : Number(val) || 0;
-    } finally {
-      db.close();
-    }
-  } catch {
-    return null;
+    const client = new Client({ connectionString: dbConnection });
+    await client.connect();
+    const query: QueryFn = async (sql) => {
+      try {
+        const result = await client.query(sql);
+        if (!result.rows.length) return 0;
+        const val = Object.values(result.rows[0])[0];
+        return typeof val === 'number' ? val : Number(val) || 0;
+      } catch {
+        return null;
+      }
+    };
+    return { query, close: () => client.end() };
+  } else {
+    // SQLite — open/close per query (diagnostic tool, not hot path)
+    const query: QueryFn = async (sql) => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const { DatabaseSync } = require('node:sqlite') as {
+          DatabaseSync: new (path: string) => {
+            prepare: (sql: string) => { get: () => Record<string, unknown> };
+            close: () => void;
+          };
+        };
+        const db = new DatabaseSync(dbConnection);
+        try {
+          const row = db.prepare(sql).get();
+          if (!row) return 0;
+          const val = Object.values(row)[0];
+          return typeof val === 'number' ? val : Number(val) || 0;
+        } finally {
+          db.close();
+        }
+      } catch {
+        return null;
+      }
+    };
+    return { query, close: async () => {} };
   }
 }
 
@@ -273,7 +307,7 @@ function buildVolumeChecks(manifest: Manifest): HealthCheck[] {
 
 // ── Threshold evaluation ─────────────────────────────────────────────────────
 
-function evaluateStateCheck(check: HealthCheck, value: number, allChecks: HealthCheck[], dbPath: string): void {
+async function evaluateStateCheck(check: HealthCheck, value: number, queryFn: QueryFn): Promise<void> {
   check.value = value;
   const nameLower = check.name.toLowerCase();
 
@@ -293,7 +327,7 @@ function evaluateStateCheck(check: HealthCheck, value: number, allChecks: Health
     const entityMatch = check.name.match(/^(\w+)\./);
     if (entityMatch) {
       const table = entityToTable(entityMatch[1]);
-      const total = runQuery(dbPath, `SELECT COUNT(*) as n FROM ${table}`) ?? 0;
+      const total = await queryFn(`SELECT COUNT(*) as n FROM ${table}`) ?? 0;
       const ratio = total > 0 ? value / total : 0;
       if (ratio === 0) {
         check.status = 'ok';
@@ -346,7 +380,7 @@ function evaluateVolumeCheck(check: HealthCheck, value: number): void {
 
 // ── Main ─────────────────────────────────────────────────────────────────────
 
-export function runScaleMonitor(manifest: Manifest, dbPath: string): ScaleReport {
+export async function runScaleMonitor(manifest: Manifest, dbConnection: string): Promise<ScaleReport> {
   const allChecks: HealthCheck[] = [
     ...buildStateChecks(manifest),
     ...buildComputedChecks(manifest),
@@ -354,23 +388,29 @@ export function runScaleMonitor(manifest: Manifest, dbPath: string): ScaleReport
     ...buildVolumeChecks(manifest),
   ];
 
-  // Execute each check
-  for (const check of allChecks) {
-    if (check.status === 'skip') continue;
+  const { query: queryFn, close } = await openConnection(dbConnection);
 
-    const value = runQuery(dbPath, check.sql);
-    if (value === null) {
-      check.status = 'skip';
-      check.detail = 'Query failed — table may not exist or schema differs.';
-      continue;
-    }
+  try {
+    // Execute each check
+    for (const check of allChecks) {
+      if (check.status === 'skip') continue;
 
-    switch (check.category) {
-      case 'state':     evaluateStateCheck(check, value, allChecks, dbPath); break;
-      case 'computed':  evaluateComputedCheck(check, value); break;
-      case 'integrity': evaluateIntegrityCheck(check, value); break;
-      case 'volume':    evaluateVolumeCheck(check, value); break;
+      const value = await queryFn(check.sql);
+      if (value === null) {
+        check.status = 'skip';
+        check.detail = 'Query failed — table may not exist or schema differs.';
+        continue;
+      }
+
+      switch (check.category) {
+        case 'state':     await evaluateStateCheck(check, value, queryFn); break;
+        case 'computed':  evaluateComputedCheck(check, value); break;
+        case 'integrity': evaluateIntegrityCheck(check, value); break;
+        case 'volume':    evaluateVolumeCheck(check, value); break;
+      }
     }
+  } finally {
+    await close();
   }
 
   // Summary
@@ -388,7 +428,7 @@ export function runScaleMonitor(manifest: Manifest, dbPath: string): ScaleReport
   return {
     check: 'scale_monitor',
     manifestVersion: manifest.meta.version,
-    dbPath,
+    dbPath: dbConnection,
     timestamp: new Date().toISOString(),
     checks: allChecks,
     summary,

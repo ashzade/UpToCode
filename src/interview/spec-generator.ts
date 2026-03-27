@@ -35,7 +35,7 @@ function buildSystemPrompt(): string {
 
 1. Output ONLY the requirements.md content. No explanation, no preamble, no code fences.
 2. The ONLY allowed top-level sections (## headings) are: External State Providers, State Machine, Actors & Access, Data Model, Computed Properties, Logic Rules. No other sections.
-3. Data Model fields use ONLY this syntax: \`field_name: type | modifier | modifier\` — NO markdown tables, NO bullets, NO bold.
+3. Data Model entities MAY have, immediately after the \`### EntityName\` heading: (a) one optional italic summary line \`_Short one-liner._\`, and (b) optional multi-line prose notes explaining how the entity works (before the first field line). Fields then follow using ONLY this syntax: \`field_name: type | modifier | modifier\` — NO markdown tables, NO bullets, NO bold in fields.
 4. Logic Rules use ONLY bare key-value lines (Type:, Entity:, Condition:, Message:) — NO bullets, NO bold, NO dashes.
 5. State Machine transitions use ONLY \`#### FROM → TO\` headings with bare Trigger:/Guard:/Action: lines — NO code blocks, NO ASCII art.
 6. Computed Properties use ONLY bare key-value lines (Aggregate:, Entity:, Filter:, Window:) — NO bullets, NO bold.
@@ -153,6 +153,7 @@ RULE_05: MEDIUM → reject
 ## Data Model
 
 ### Document
+_A file or Slack export ingested into the system. Tracks processing status and links to raw content._
 
 id:             string | primary | auto-gen
 name:           string | required
@@ -167,6 +168,7 @@ raw_content:    string | nullable
 status:         enum('pending', 'processed', 'failed') | required | default(pending)
 
 ### Analysis
+_Structured output extracted from a document by Claude: summary, decisions, action items, blockers, and insights._
 
 id:             integer | primary | auto-gen
 document_id:    string | required | unique | indexed | fk(Document.id, one-to-one)
@@ -179,6 +181,7 @@ blockers:       string | required | default([])
 created_at:     timestamp | auto-gen
 
 ### Task
+_An action item surfaced from a document or suggested by Claude, tracked to completion._
 
 id:             integer | primary | auto-gen
 document_id:    string | required | indexed | fk(Document.id, many-to-one)

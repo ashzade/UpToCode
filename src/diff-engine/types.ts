@@ -19,11 +19,20 @@ export interface Violation {
   enforcement: { responses: string[] };
 }
 
+export interface OrphanedImplementation {
+  type: 'route';
+  resource: string;
+  location: { file: string; line: number };
+  description: string;
+  fixHint: string;
+}
+
 export interface ContractDiffResult {
   check: 'contract_diff';
   manifestVersion: string;
   violations: Violation[];
   passed: string[];   // rule IDs that passed
+  orphaned: OrphanedImplementation[];
   summary: string;
 }
 

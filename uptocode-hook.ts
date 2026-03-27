@@ -84,6 +84,34 @@ const UTILITY_PACKAGES = new Set([
   'typescript', 'tsnode', 'esbuild', 'webpack', 'vite', 'rollup',
   // Anthropic/OpenAI (UpToCode itself uses Claude — don't flag it)
   'anthropic', 'openai',
+  // Python stdlib
+  'json', 'logging', 'threading', 'os', 're', 'sys', 'io', 'abc', 'ast',
+  'math', 'time', 'random', 'copy', 'enum', 'glob', 'gzip', 'hashlib',
+  'hmac', 'html', 'http', 'inspect', 'itertools', 'functools', 'collections',
+  'contextlib', 'datetime', 'decimal', 'difflib', 'email', 'errno',
+  'fractions', 'gc', 'getpass', 'gettext', 'heapq', 'importlib',
+  'pathlib', 'pickle', 'platform', 'pprint', 'queue', 'shlex', 'shutil',
+  'signal', 'socket', 'sqlite3', 'stat', 'statistics', 'string',
+  'struct', 'subprocess', 'tempfile', 'textwrap', 'traceback', 'typing',
+  'unicodedata', 'unittest', 'urllib', 'uuid', 'warnings', 'weakref',
+  'xml', 'xmlrpc', 'zipfile', 'zlib',
+  // Python web / common packages
+  'flask', 'werkzeug', 'jinja2', 'wtforms', 'itsdangerous',
+  'django', 'fastapi', 'starlette', 'uvicorn', 'gunicorn',
+  'requests', 'httpx', 'aiohttp', 'urllib3',
+  'sqlalchemy', 'alembic', 'peewee',
+  'pydantic', 'marshmallow', 'cerberus',
+  'celery', 'rq', 'dramatiq',
+  'boto3', 'botocore', 'aiobotocore',
+  'pandas', 'numpy', 'scipy', 'sklearn', 'matplotlib', 'seaborn', 'plotly',
+  'pytest', 'unittest', 'hypothesis',
+  'click', 'typer', 'argparse', 'rich', 'tqdm',
+  'yaml', 'toml', 'dotenv', 'decouple',
+  'watchdog', 'schedule', 'apscheduler',
+  // Project-local Python modules (not external services)
+  'database', 'processor', 'analyzer', 'config', 'gdocs_reader',
+  'ics_reader', 'slack_reader', 'slack_dump_reader', 'people_api',
+  'trust_scorer',
 ]);
 
 function extractImportedPackages(content: string, filePath: string): string[] {
@@ -185,6 +213,60 @@ function detectDeadProviders(projectRoot: string, manifest: Manifest): string[] 
     const inContent = stem.length >= 4 && allContents.some(c => c.includes(stem));
     return !inImports && !inContent;
   });
+}
+
+// ── Broken import detection ───────────────────────────────────────────────────
+
+/**
+ * Resolve a relative import path to a real file on disk.
+ * Returns the resolved path if found, null if missing.
+ * Handles: exact path, .ts/.tsx/.js/.jsx extensions, and /index.* variants.
+ */
+function resolveImportPath(fromDir: string, importPath: string): string | null {
+  const base = path.resolve(fromDir, importPath);
+
+  if (fs.existsSync(base)) return base;
+
+  for (const ext of ['.ts', '.tsx', '.js', '.jsx']) {
+    if (fs.existsSync(base + ext)) return base + ext;
+  }
+
+  for (const idx of ['index.ts', 'index.tsx', 'index.js', 'index.jsx']) {
+    if (fs.existsSync(path.join(base, idx))) return path.join(base, idx);
+  }
+
+  return null;
+}
+
+/**
+ * Returns relative import paths that don't resolve to existing files.
+ * Only checks relative imports (starting with . or ..) — package imports
+ * are handled by the TypeScript check above.
+ */
+function findBrokenImports(filePath: string, content: string): string[] {
+  const dir = path.dirname(filePath);
+  const broken: string[] = [];
+  const seen = new Set<string>();
+
+  const patterns = [
+    // import ... from './path'
+    /(?:import|export)\s+(?:(?:type\s+)?(?:\{[^}]*\}|\*\s+as\s+\w+|\w+)(?:\s*,\s*(?:\{[^}]*\}|\*\s+as\s+\w+|\w+))*\s+from\s+)?['"](\.[^'"]+)['"]/g,
+    // require('./path')
+    /require\s*\(\s*['"](\.[^'"]+)['"]\s*\)/g,
+  ];
+
+  for (const re of patterns) {
+    for (const m of content.matchAll(re)) {
+      const importPath = m[1];
+      if (!importPath.startsWith('.') || seen.has(importPath)) continue;
+      seen.add(importPath);
+      if (resolveImportPath(dir, importPath) === null) {
+        broken.push(importPath);
+      }
+    }
+  }
+
+  return broken;
 }
 
 // ── Find nearest manifest.json ───────────────────────────────────────────────
@@ -297,6 +379,19 @@ async function main() {
         }
       }
     }
+  }
+
+  // ── Broken import check ───────────────────────────────────────────────────
+  const broken = findBrokenImports(filePath, fileContent);
+  if (broken.length > 0) {
+    const plural = broken.length === 1 ? 'import' : 'imports';
+    const list = broken.map(p => `  • ${p}`).join('\n');
+    process.stdout.write(
+      `UpToCode: ${broken.length} missing ${plural} in ${path.basename(filePath)} — ` +
+      `these files don't exist yet:\n${list}\n` +
+      `  Create the missing file(s) before finishing.\n`
+    );
+    process.exit(2);
   }
 
   // ── Check for new external providers not in the spec ──────────────────────
