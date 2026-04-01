@@ -25,6 +25,7 @@ You don't need to be a senior engineer or know the "right" professional processe
 * **Real-Time Guardrails**: UpToCode watches your changes in real-time as you save or stage your code, making sure everything stays on track — including TypeScript type errors, new external services that aren't in your spec, dead code left behind after a refactor, and missing files that were imported but never created.
 * **Session-Start Auto-Fix**: At the start of every session, UpToCode scans the full codebase and automatically fixes any HIGH/CRITICAL violations before Claude responds to you. Catches and resolves drift from work done outside Claude — direct edits, migrations, or other tools — without you having to ask.
 * **Pre-Push Auto-Fix**: Before committing and pushing any code to GitHub, UpToCode runs a full inspection. If violations remain, Claude fixes them first — then pushes. Your GitHub history is always clean.
+* **Adversarial Test Auto-Fix**: When adversarial tests are generated, UpToCode immediately evaluates them against the live codebase and surfaces any failures in the same response. Claude fixes missing guards in the same turn — no follow-up prompt needed.
 * **Session Reports**: At the end of each response, UpToCode prints a plain-English summary of what it caught and fixed.
 * **GitHub Setup & Workflow**: UpToCode sets up your GitHub repository, handles your commit history, and introduces professional practices like pull requests — automatically, without you having to ask.
 * **Automatic PRs & Auto-Merge**: Every session creates a pull request. When the inspection passes, it merges automatically. When it doesn't, you're told immediately — right in your terminal.
@@ -51,8 +52,9 @@ UpToCode turns your plain-English instructions into a **Smart Logic Engine**. En
 > *"2 missing imports in checkout/route.ts — these files don't exist yet: ./lib/payments, ./hooks/useCart. Create the missing file(s) before finishing."*
 
 ### 2. The Stress Test (Adversarial Probing)
-UpToCode maps out every path a user can take to find the cracks where things usually break. It dreams up "what if" scenarios to make sure your app doesn't crumble when a user does something unexpected.
+UpToCode maps out every path a user can take to find the cracks where things usually break. It dreams up "what if" scenarios to make sure your app doesn't crumble when a user does something unexpected. Then it immediately checks whether those scenarios are actually guarded against — and fixes any that aren't, in the same turn.
 > *"What if someone clicks 'Submit' twice? What if they try to access the dashboard while their account is suspended?"*
+> *"⚠️ 12/47 adversarial tests FAIL. Field 'email' has no required-check guard. State machine has no assertValidTransition call. Fixing now…"*
 
 ### 3. Zoning & Permits (Security Auditing)
 You define exactly who is allowed to touch what data. UpToCode scans for security violations and flags any code that tries to cross a boundary it shouldn't.
@@ -117,7 +119,7 @@ Condition: env(GOOGLE_PLACES_API_KEY) != ''
 | *"Generate a README for my project"* | Writes a plain-English README.md from your spec. |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net, and adds plain-English descriptions so you can read it too. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
-| *"Run generate-tests for this project"* | Finds the hidden ways your app could break. |
+| *"Run generate-tests for this project"* | Finds the hidden ways your app could break — then checks whether each one is already guarded against and fixes any that aren't. |
 | *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits." |
 | *"Run scale-monitor for this project"* | Checks your live database for architectural drift. |
 | *"Run generate-spec for this project"* | Reverse-engineers a starter Playbook from existing code. |
@@ -184,14 +186,14 @@ No git commands. No configuration. One message.
 
 **When the inspection fails:** UpToCode tells you immediately in your terminal at the end of the next response — including a direct link to the blocked PR. You never have to check GitHub to know something needs fixing.
 
-**Nightly:** Adversarial test cases are generated from your spec and uploaded as a report. You can also trigger this manually from the GitHub Actions tab at any time.
+**Nightly:** Adversarial test cases are generated from your spec and immediately evaluated against the codebase. Any HIGH-severity failures fail the CI job — Claude fixes them in the next session automatically. You can also trigger this manually from the GitHub Actions tab at any time.
 
 | Check | When | Result |
 |---|---|---|
 | **Logic Enforcement** | Every push | ✅ Pass / ❌ Violations block merge |
 | **Security Audit** | Every push | ✅ Pass / ❌ Findings block merge |
 | **Spec Drift** | Every PR | ⚠️ Living checklist of unimplemented spec changes |
-| **Adversarial Tests** | Nightly + on demand | ⚠️ Cases generated for review |
+| **Adversarial Tests** | Nightly + on demand | ⚠️ Cases generated & evaluated — HIGH failures block merge |
 | **Database Health** | On demand | Run `scale-monitor` locally |
 
 ### Why this matters
