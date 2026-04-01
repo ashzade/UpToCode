@@ -21,6 +21,17 @@ function safe(s: string): string {
   return s.replace(/["\[\]{}|<>]/g, '').trim();
 }
 
+/**
+ * Convert an entity name to a valid Mermaid node ID.
+ * Mermaid node IDs must be alphanumeric + underscores only.
+ * E.g. "ParsedQuery (in-memory)" → "ParsedQueryInMemory"
+ */
+function nodeId(name: string): string {
+  return name
+    .replace(/\(in-memory\)/gi, 'InMemory')
+    .replace(/[^a-zA-Z0-9_]/g, '');
+}
+
 /** Truncate a string to fit inside a diagram node label. */
 function trunc(s: string, max = 35): string {
   return s.length > max ? s.slice(0, max - 1) + '…' : s;
@@ -245,7 +256,7 @@ export function generateContentPipelineDiagram(manifest: Manifest): string | nul
   if (shownOutputs.length > 0) {
     lines.push('    subgraph Knowledge["🗂️ Structured Knowledge"]');
     for (const e of shownOutputs) {
-      lines.push(`        ${e}[("${entityLabel(e)}")]`);
+      lines.push(`        ${nodeId(e)}[("${entityLabel(e)}")]`);
     }
     lines.push('    end');
   }
@@ -258,10 +269,10 @@ export function generateContentPipelineDiagram(manifest: Manifest): string | nul
     for (const a of analyzers) lines.push(`    Ingest --> ${a}`);
     // Edges: analyzers → knowledge
     for (const a of analyzers) {
-      for (const e of shownOutputs) lines.push(`    ${a} --> ${e}`);
+      for (const e of shownOutputs) lines.push(`    ${a} --> ${nodeId(e)}`);
     }
   } else {
-    for (const e of shownOutputs) lines.push(`    Ingest --> ${e}`);
+    for (const e of shownOutputs) lines.push(`    Ingest --> ${nodeId(e)}`);
   }
 
   // State machine annotation
@@ -306,7 +317,7 @@ export function generateUserFlowDiagram(manifest: Manifest): string | null {
   if (viewable.length > 0) {
     lines.push('    subgraph View["📊 What they see"]');
     for (const e of viewable) {
-      lines.push(`        ${e}["${entityLabel(e)}"]`);
+      lines.push(`        ${nodeId(e)}["${entityLabel(e)}"]`);
     }
     lines.push('    end');
     lines.push('    User --> View');
@@ -335,8 +346,19 @@ export function generateStateDiagram(manifest: Manifest): string | null {
 
   const froms = new Set(sm.transitions.map(t => t.from));
   const tos   = new Set(sm.transitions.map(t => t.to));
+
+  // Initial states: prefer well-known names, fall back to states with no incoming transitions
+  const INITIAL_NAMES = ['PENDING', 'INIT', 'NEW', 'CREATED', 'DRAFT', 'OPEN', 'SUBMITTED'];
+  const allStates = new Set([...froms, ...tos]);
+  const initialState =
+    INITIAL_NAMES.find(s => allStates.has(s)) ??
+    [...froms].find(s => !tos.has(s)) ??
+    sm.transitions[0].from;
+  lines.push(`    [*] --> ${initialState}`);
+
+  // Terminal states: appear as `to` but never as `from` — add end marker
   for (const s of tos) {
-    if (!froms.has(s)) lines.push(`    [*] --> ${s}`);
+    if (!froms.has(s)) lines.push(`    ${s} --> [*]`);
   }
 
   for (const t of sm.transitions) {
