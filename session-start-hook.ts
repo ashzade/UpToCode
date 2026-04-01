@@ -24,6 +24,7 @@ import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
 
 const DEBOUNCE_MINUTES = 2;
+const CI_DEBOUNCE_MINUTES = 60;
 const SKIP_DIRS = new Set(['node_modules', '.git', '__pycache__', '.venv', 'venv', 'dist', 'build', '.next']);
 
 function findProjectRoot(): string | null {
@@ -79,6 +80,71 @@ function getUncommittedFiles(projectRoot: string): string[] {
       .filter(f => !f.endsWith('.tsbuildinfo'));
   } catch {
     return [];
+  }
+}
+
+// ── CI status check ───────────────────────────────────────────────────────────
+
+function shouldCheckCI(projectRoot: string): boolean {
+  const stampPath = path.join(projectRoot, '.uptocode', 'last_ci_check');
+  if (!fs.existsSync(stampPath)) return true;
+  try {
+    const last = new Date(fs.readFileSync(stampPath, 'utf-8').trim());
+    return (Date.now() - last.getTime()) / 60000 >= CI_DEBOUNCE_MINUTES;
+  } catch {
+    return true;
+  }
+}
+
+function writeCIStamp(projectRoot: string): void {
+  try {
+    const dir = path.join(projectRoot, '.uptocode');
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, 'last_ci_check'), new Date().toISOString(), 'utf-8');
+  } catch { /* non-fatal */ }
+}
+
+function checkCIStatus(projectRoot: string): string | null {
+  try {
+    // Only applies to GitHub-hosted remotes
+    const remote = execSync('git remote get-url origin', {
+      cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'],
+    }).toString().trim();
+    if (!remote.includes('github.com')) return null;
+
+    const raw = execSync(
+      'gh run list --limit 10 --json databaseId,name,conclusion,headBranch,createdAt,url',
+      { cwd: projectRoot, stdio: ['pipe', 'pipe', 'pipe'] },
+    ).toString().trim();
+
+    const runs: Array<{
+      databaseId: number; name: string; conclusion: string;
+      headBranch: string; createdAt: string; url: string;
+    }> = JSON.parse(raw);
+
+    // Show failures from the last 10 runs within the last 48 hours
+    const cutoff = Date.now() - 48 * 60 * 60 * 1000;
+    const failures = runs.filter(
+      r => r.conclusion === 'failure' && new Date(r.createdAt).getTime() > cutoff,
+    );
+    if (failures.length === 0) return null;
+
+    const lines = [
+      `UpToCode: ${failures.length} CI run(s) failed — review and fix before continuing:`,
+      '',
+    ];
+    for (const run of failures) {
+      const age = Math.round((Date.now() - new Date(run.createdAt).getTime()) / 60000);
+      const ageStr = age < 60 ? `${age}m ago` : `${Math.round(age / 60)}h ago`;
+      lines.push(`  ❌ ${run.name} on ${run.headBranch} (${ageStr})`);
+      lines.push(`     ${run.url}`);
+    }
+    lines.push('');
+    lines.push('Investigate each failed run and fix any violations before pushing new code.');
+
+    return lines.join('\n');
+  } catch {
+    return null; // gh not installed, not a git repo, no GitHub remote — skip silently
   }
 }
 
@@ -213,6 +279,16 @@ async function main() {
       'Run: git add -A && git commit -m "checkpoint" && git push',
     ];
     process.stdout.write(lines.join('\n') + '\n');
+  }
+
+  // CI status check — once per hour
+  if (shouldCheckCI(projectRoot)) {
+    writeCIStamp(projectRoot);
+    const ciWarning = checkCIStatus(projectRoot);
+    if (ciWarning) {
+      process.stdout.write(ciWarning + '\n');
+      process.exit(2);
+    }
   }
 
   if (!shouldRun(projectRoot)) process.exit(0);
