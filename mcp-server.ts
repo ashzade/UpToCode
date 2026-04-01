@@ -15,6 +15,8 @@ import { Manifest } from './src/types';
 import { analyzeCode } from './src/interview/code-analyzer';
 import { generateSpec } from './src/interview/spec-generator';
 import { generateTests, renderMarkdown } from './src/adversarial/test-generator';
+import { evaluateTests, renderFailureBlock } from './src/adversarial/test-evaluator';
+import { collectCodeFiles } from './src/inspect/runner';
 import { securityAudit, renderSecurityReport } from './src/security/access-auditor';
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
@@ -954,7 +956,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         .join(', ');
 
       const writtenLine = outputPath ? `\nWritten to: ${outputPath}` : '';
-      const text = `Generated ${total} adversarial tests (${severitySummary}).${writtenLine}\n\n${markdown}`;
+
+      // Evaluate the tests against the codebase when project_root is available.
+      // Failures are appended so Claude automatically starts fixing them.
+      let failureBlock = '';
+      if (input.project_root) {
+        const codeFiles = collectCodeFiles(input.project_root);
+        const evalReport = evaluateTests(suite, codeFiles);
+        failureBlock = renderFailureBlock(evalReport);
+      }
+
+      const text = `Generated ${total} adversarial tests (${severitySummary}).${writtenLine}\n\n${markdown}${failureBlock}`;
 
       return { content: [{ type: 'text', text }] };
     }

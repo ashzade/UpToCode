@@ -18,6 +18,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { generateTests, renderMarkdown } from '../src/adversarial/test-generator';
+import { evaluateTests, renderFailureBlock } from '../src/adversarial/test-evaluator';
+import { collectCodeFiles } from '../src/inspect/runner';
 import { Manifest } from '../src/types';
 
 async function main() {
@@ -40,6 +42,23 @@ async function main() {
 
   console.log(`UpToCode: ${testSuite.tests.length} test cases generated (${highTests} high-severity)`);
   console.log(`  → adversarial-tests.md`);
+
+  // Evaluate tests against the codebase and surface failures.
+  const codeFiles = collectCodeFiles(projectRoot);
+  const evalReport = evaluateTests(testSuite, codeFiles);
+
+  if (evalReport.summary.failed > 0) {
+    const failedHigh = evalReport.summary.failedBySeverity['HIGH'] ?? 0;
+    console.error(renderFailureBlock(evalReport));
+    console.error(
+      `UpToCode: ${evalReport.summary.failed} adversarial test(s) failed ` +
+      `(${failedHigh} HIGH-severity). Fix before merging.`
+    );
+    // Exit 1 to fail the CI job when there are HIGH-severity failures.
+    if (failedHigh > 0) process.exit(1);
+  } else {
+    console.log('UpToCode: ✅ all adversarial tests pass.');
+  }
 }
 
 main().catch(err => {
