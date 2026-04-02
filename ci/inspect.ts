@@ -144,7 +144,7 @@ async function main() {
   }
 
   const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
-  const { violations, securityFindings, filesChecked } = runInspection(manifest, projectRoot, { skipTests: true });
+  const { violations, securityFindings, filesChecked } = await runInspection(manifest, projectRoot, { skipTests: true });
 
   const highViolations = violations.filter(v => v.severity === 'HIGH' || v.severity === 'CRITICAL');
   const highFindings = securityFindings.filter(f => f.severity === 'HIGH');
