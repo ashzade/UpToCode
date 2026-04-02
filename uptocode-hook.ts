@@ -20,6 +20,7 @@ import { parse } from './src/index';
 import { contractDiff } from './src/diff-engine/index';
 import { CodeFile } from './src/diff-engine/types';
 import { Manifest } from './src/types';
+import { coherenceScan } from './src/coherence/index';
 
 // ── Session logging ───────────────────────────────────────────────────────────
 
@@ -425,7 +426,11 @@ async function main() {
 
   const result = contractDiff(manifest, files);
 
-  if (result.violations.length === 0) {
+  // ── Coherence scan on changed file ───────────────────────────────────────
+  const coherenceResult = await coherenceScan(manifest, files);
+  const highCoherenceIssues = coherenceResult.issues.filter(i => i.severity === 'HIGH');
+
+  if (result.violations.length === 0 && highCoherenceIssues.length === 0) {
     appendSessionLog(projectRoot, { ts: now(), file: rel(projectRoot, filePath), clean: true });
     process.exit(0);
   }
@@ -443,14 +448,27 @@ async function main() {
   });
 
   // Format violations for Claude (stdout)
-  const lines: string[] = [
-    `UpToCode: ${result.violations.length} rule violation(s) in ${path.basename(filePath)}`,
-  ];
-  for (const v of result.violations) {
-    const loc = v.location ? `:${v.location.line}` : '';
-    lines.push(`  ${v.ruleId} [${v.severity}]${loc} — ${v.title}`);
-    if (v.fixHint) lines.push(`    Fix: ${v.fixHint}`);
+  const lines: string[] = [];
+
+  if (result.violations.length > 0) {
+    lines.push(`UpToCode: ${result.violations.length} rule violation(s) in ${path.basename(filePath)}`);
+    for (const v of result.violations) {
+      const loc = v.location ? `:${v.location.line}` : '';
+      lines.push(`  ${v.ruleId} [${v.severity}]${loc} — ${v.title}`);
+      if (v.fixHint) lines.push(`    Fix: ${v.fixHint}`);
+    }
   }
+
+  // Report HIGH coherence issues — these block (exit 2)
+  if (highCoherenceIssues.length > 0) {
+    lines.push(`UpToCode Coherence: ${highCoherenceIssues.length} HIGH-severity issue(s) in ${path.basename(filePath)}`);
+    for (const issue of highCoherenceIssues) {
+      const loc = issue.line ? `:${issue.line}` : '';
+      lines.push(`  [${issue.id}]${loc} — ${issue.message}`);
+      lines.push(`    Fix: ${issue.fixHint}`);
+    }
+  }
+
   process.stdout.write(lines.join('\n') + '\n');
   process.exit(2);
 }

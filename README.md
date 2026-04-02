@@ -65,6 +65,28 @@ You define exactly who is allowed to touch what data. UpToCode scans for securit
 Once you ship, UpToCode monitors your live database for technical "drift" or stuck records that signal your logic is failing in the real world. Works with both SQLite and Postgres — for Postgres projects, it reads your `DATABASE_URL` automatically.
 > *"16 users are 'Active' status but missing Stripe IDs. The foundation is failing."*
 
+### 5. Coherence Scan (AI Drift Detection)
+AI sessions are fast — but each session doesn't know what the last one did. Over time, your codebase accumulates structural issues that no single session catches: dead exports that were refactored away, validation errors silently swallowed by empty catch blocks, the same error message string copy-pasted into six files, or a TypeScript interface that says a field is optional while the validator throws if it's missing.
+
+The Coherence Scan is the sixth pillar — a dedicated pass specifically for catching the structural decay that multi-session AI coding creates.
+
+> *"3 HIGH issues found — silent catch at route.ts:47 voids the validatePayment contract. 2 TypeScript mismatches: userId? in CreateOrderInput is required at runtime. 1 env var read at module scope will be undefined in serverless cold starts."*
+
+**Six detectors run on every coherence scan:**
+
+| Detector | What it catches | Severity |
+| :--- | :--- | :--- |
+| **Dead Exports** | Functions/classes exported but never imported anywhere | MEDIUM |
+| **Dead Files** | TypeScript files that no other file imports (excluding entry points) | LOW |
+| **Silent Catches** | try/catch blocks that swallow `validateXxx()` errors with no rethrow or error response | HIGH |
+| **Env Scope** | `process.env.VAR` read at module top-level instead of inside functions (breaks serverless & tests) | MEDIUM |
+| **Duplicate Logic** | String literals >30 chars appearing 3+ times; function bodies with identical call sequences | LOW/MEDIUM |
+| **TS Contract Mismatch** | Interface field is `field?: type` (optional) but the runtime validator throws if it's absent | HIGH |
+| **API Envelope** | Sibling routes for the same resource return different JSON shapes | LOW |
+
+Run it any time:
+> *"Run coherence-scan for this project"*
+
 ---
 
 ## 🔄 The Vibe-to-Product Workflow
@@ -123,6 +145,7 @@ Condition: env(GOOGLE_PLACES_API_KEY) != ''
 | *"Run generate-tests for this project"* | Finds the hidden ways your app could break — then checks whether each one is already guarded against and fixes any that aren't. |
 | *"Run security-audit for this project"* | Plugs holes in your "Zoning & Permits." |
 | *"Run scale-monitor for this project"* | Checks your live database for architectural drift. |
+| *"Run coherence-scan for this project"* | Finds AI-drift issues: dead code, silent catches, env scope bugs, TS contract mismatches, duplicates, and API envelope inconsistencies. |
 | *"Run generate-spec for this project"* | Reverse-engineers a starter Playbook from existing code. |
 | *"Show me my UpToCode report"* | Shows everything UpToCode has caught and fixed across all sessions — top rules triggered, most-flagged files, and resolution rate. |
 
@@ -196,6 +219,7 @@ No git commands. No configuration. One message.
 | **Spec Drift** | Every PR | ⚠️ Living checklist of unimplemented spec changes |
 | **Adversarial Tests** | Nightly + on demand | ⚠️ Cases generated & evaluated — HIGH failures block merge |
 | **Database Health** | On demand | Run `scale-monitor` locally |
+| **Coherence Scan** | On demand | HIGH/MEDIUM issues flagged — run `coherence-scan` locally |
 
 ### Why this matters
 

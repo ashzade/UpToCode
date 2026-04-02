@@ -1,8 +1,9 @@
 /**
  * Shared inspection runner used by both the local Stop hook and the CI script.
  *
- * Runs all three local pillars — logic enforcement, security audit, adversarial
- * tests — and returns a structured result. Does not write any files.
+ * Runs all four local pillars — logic enforcement, security audit, adversarial
+ * tests, and coherence scan — and returns a structured result. Does not write
+ * any files.
  */
 
 import * as fs from 'fs';
@@ -12,6 +13,7 @@ import { CodeFile, Violation } from '../diff-engine/types';
 import { Manifest } from '../types';
 import { securityAudit, SecurityFinding } from '../security/access-auditor';
 import { generateTests, TestSuite } from '../adversarial/test-generator';
+import { coherenceScan, CoherenceScanResult } from '../coherence/index';
 
 // ── File collection ───────────────────────────────────────────────────────────
 
@@ -50,20 +52,22 @@ export interface InspectionResult {
   violations: Violation[];
   securityFindings: SecurityFinding[];
   testSuite: TestSuite;
+  coherence: CoherenceScanResult;
   filesChecked: number;
   projectRoot: string;
 }
 
 // ── Runner ────────────────────────────────────────────────────────────────────
 
-export function runInspection(manifest: Manifest, projectRoot: string, opts?: { skipTests?: boolean }): InspectionResult {
+export async function runInspection(manifest: Manifest, projectRoot: string, opts?: { skipTests?: boolean }): Promise<InspectionResult> {
   const files = collectCodeFiles(projectRoot);
   const violations = contractDiff(manifest, files).violations;
   const securityFindings = securityAudit(manifest, files).findings;
   const testSuite = opts?.skipTests
     ? { featureId: '', version: '', generatedAt: '', tests: [], summary: { total: 0, byCategory: {} as never, bySeverity: {} } }
     : generateTests(manifest);
-  return { violations, securityFindings, testSuite, filesChecked: files.length, projectRoot };
+  const coherence = await coherenceScan(manifest, files);
+  return { violations, securityFindings, testSuite, coherence, filesChecked: files.length, projectRoot };
 }
 
 // ── Report renderer (terminal) ────────────────────────────────────────────────
@@ -75,8 +79,7 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
   remote?: string;
   prUrl?: string;
 }): string {
-  const { violations, securityFindings, testSuite, filesChecked } = result;
-  const highTests = testSuite.tests.filter(t => t.severity === 'HIGH').length;
+  const { violations, securityFindings, testSuite, coherence, filesChecked } = result;
 
   const logicStatus = violations.length === 0
     ? `✅  ${filesChecked} files · 0 violations`
@@ -85,6 +88,12 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
   const secStatus = securityFindings.length === 0
     ? '✅  No unguarded writes'
     : `❌  ${securityFindings.length} finding(s)`;
+
+  const coherenceStatus = coherence.issues.length === 0
+    ? '✅  No coherence issues'
+    : coherence.failed > 0
+      ? `❌  ${coherence.failed} actionable · ${coherence.passed} advisory`
+      : `⚠️   ${coherence.passed} advisory issue(s)`;
 
   const lines: string[] = [
     '',
@@ -103,6 +112,7 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
   }
 
   lines.push('  Database Health      ⏭️   Run scale-monitor to check');
+  lines.push(`  Coherence Scan       ${coherenceStatus}`);
 
   if (extras?.sessionViolations !== undefined) {
     lines.push('');
@@ -142,6 +152,17 @@ export function renderInspectionReport(result: InspectionResult, extras?: {
     for (const f of securityFindings) {
       const loc = `${path.relative(result.projectRoot, f.location.file)}:${f.location.line}`;
       lines.push(`    [${f.severity}] ${f.description} (${loc})`);
+    }
+  }
+
+  // Coherence details
+  if (coherence.issues.length > 0) {
+    lines.push('');
+    lines.push('  Coherence:');
+    for (const issue of coherence.issues) {
+      const loc = issue.line ? `:${issue.line}` : '';
+      const relFile = path.relative(result.projectRoot, issue.file);
+      lines.push(`    [${issue.severity}] ${issue.message} (${relFile}${loc})`);
     }
   }
 

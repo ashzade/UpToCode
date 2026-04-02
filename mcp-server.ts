@@ -18,6 +18,7 @@ import { generateTests, renderMarkdown } from './src/adversarial/test-generator'
 import { evaluateTests, renderFailureBlock } from './src/adversarial/test-evaluator';
 import { collectCodeFiles } from './src/inspect/runner';
 import { securityAudit, renderSecurityReport } from './src/security/access-auditor';
+import { coherenceScan } from './src/coherence/index';
 import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
@@ -132,6 +133,12 @@ const RegenerateInput = z.object({
   description: z.string().optional().describe('Optional plain-English description passed to generate-spec'),
   feature_name: z.string().optional().describe('Optional feature name passed to generate-spec'),
   owner: z.string().optional().describe('Optional owner handle'),
+});
+
+const CoherenceScanInput = z.object({
+  project_root: z.string().describe('Absolute path to the project directory containing manifest.json and code files'),
+  manifest_path: z.string().optional().describe('Explicit path to manifest.json. Overrides project_root discovery.'),
+  code_paths: z.array(z.string()).optional().describe('Explicit list of absolute paths to code files. Overrides project_root file discovery.'),
 });
 
 // ── Helper: apply-fix hint builder ──────────────────────────────
@@ -477,6 +484,24 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             line: { type: 'number', description: 'Line number of the violation (from contract-diff output)' },
           },
           required: ['project_root', 'file_path', 'rule_id'],
+        },
+      },
+      {
+        name: 'coherence-scan',
+        description:
+          'Scan the codebase for structural quality issues that arise specifically from AI-generated code across multiple sessions. Detects six categories: dead exports and dead files, silent catch blocks that void validation contracts, env vars read at module scope, duplicate string literals and logic blocks, TypeScript interface/runtime validator mismatches, and API envelope inconsistencies across sibling routes. Returns issues grouped by severity (HIGH/MEDIUM actionable, LOW advisory).',
+        inputSchema: {
+          type: 'object',
+          properties: {
+            project_root: { type: 'string', description: 'Absolute path to the project directory containing manifest.json and code files' },
+            manifest_path: { type: 'string', description: 'Explicit path to manifest.json (overrides project_root discovery)' },
+            code_paths: {
+              type: 'array',
+              items: { type: 'string' },
+              description: 'Explicit list of code files to scan (overrides project_root file discovery)',
+            },
+          },
+          required: ['project_root'],
         },
       },
     ],
@@ -1331,6 +1356,54 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }
 
       return { content: [{ type: 'text', text: lines.join('\n') }] };
+    }
+
+    // ── coherence-scan ────────────────────────────────────────
+    if (name === 'coherence-scan') {
+      const input = CoherenceScanInput.parse(args);
+
+      const manifestPath = input.manifest_path
+        ?? (input.project_root ? path.join(input.project_root, 'manifest.json') : null);
+      if (!manifestPath) throw new Error('Provide project_root or manifest_path');
+
+      const resolvedCodePaths: string[] = input.code_paths
+        ?? (input.project_root ? walkCodeFiles(input.project_root) : []);
+
+      const manifest: Manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf-8'));
+      const files: CodeFile[] = resolvedCodePaths.map(p => ({
+        path: p,
+        content: fs.readFileSync(p, 'utf-8'),
+      }));
+
+      const result = await coherenceScan(manifest, files);
+
+      const summaryLine = result.issues.length === 0
+        ? '✓ No coherence issues found.'
+        : `Found ${result.issues.length} coherence issue(s) — ${result.failed} actionable (HIGH/MEDIUM), ${result.passed} advisory (LOW).`;
+
+      let issueText = '';
+      if (result.issues.length > 0) {
+        const grouped: Record<string, typeof result.issues> = { HIGH: [], MEDIUM: [], LOW: [] };
+        for (const issue of result.issues) grouped[issue.severity].push(issue);
+
+        const parts: string[] = [];
+        for (const sev of ['HIGH', 'MEDIUM', 'LOW'] as const) {
+          if (grouped[sev].length === 0) continue;
+          parts.push(`\n### ${sev} (${grouped[sev].length})`);
+          for (const issue of grouped[sev]) {
+            const loc = issue.line ? `:${issue.line}` : '';
+            parts.push(`\n**[${issue.id}]** ${issue.message}`);
+            parts.push(`File: \`${issue.file}${loc}\``);
+            parts.push(`Detail: ${issue.detail}`);
+            parts.push(`Fix: ${issue.fixHint}`);
+          }
+        }
+        issueText = parts.join('\n');
+      }
+
+      const nudge = input.project_root ? gitNudge(input.project_root) : '';
+      const text = `${summaryLine}${nudge}${issueText}\n\n${JSON.stringify(result, null, 2)}`;
+      return { content: [{ type: 'text', text }] };
     }
 
     return {
