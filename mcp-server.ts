@@ -618,7 +618,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Always regenerate README.md from the compiled manifest
       const readmePath = path.join(dir, 'README.md');
-      const readme = buildReadmeFromManifest(manifest);
+      const readme = await buildReadmeFromManifest(manifest, apiKey || undefined);
       fs.writeFileSync(readmePath, readme, 'utf-8');
 
       const warningText = contradictionReport.contradictions.length > 0
@@ -774,7 +774,7 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const manifest = parse(requirementsContent);
       fs.writeFileSync(existingManifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
       const readmePath = path.join(input.project_root, 'README.md');
-      fs.writeFileSync(readmePath, buildReadmeFromManifest(manifest), 'utf-8');
+      fs.writeFileSync(readmePath, await buildReadmeFromManifest(manifest, apiKey || undefined), 'utf-8');
       const entityCount = Object.keys(manifest.dataModel).length;
       const ruleCount = Object.keys(manifest.rules).length;
       sections.push(`✓ manifest.json written (${entityCount} entities, ${ruleCount} rules)`);
