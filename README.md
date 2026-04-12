@@ -143,14 +143,14 @@ Condition: env(GOOGLE_PLACES_API_KEY) != ''
 
 ### What the generated README contains
 
-Every time you run `compile-spec`, UpToCode regenerates your `README.md` automatically — no separate step needed. The README is built from your `manifest.json` and includes:
+Every time you run `compile-spec`, UpToCode regenerates your `README.md` automatically — no separate step needed. The README is built from your spec **and your codebase** — UpToCode scans your templates, routes, and domain files so the README uses real feature names, real nav section names, and real vocabulary from your app.
 
 | Section | What it shows |
 | :--- | :--- |
 | **Integrations** | External services your app connects to (e.g. Stripe, Google Drive, Slack) |
 | **Diagrams** | Flow diagrams for your state machines and key logic paths |
-| **Business / Validation / Security rules** | Your enforced rules, grouped by type, with severity |
-| **Information architecture** | Every named concept in your product — screens, data objects, and key entities — described in plain English. Only items with a description appear, so internal technical models are filtered out automatically. |
+| **How it works** | Plain-English explanation of what the app does automatically and what it requires — synthesized from your rules and codebase, not copy-pasted error messages |
+| **Key concepts** | The important terms and features a user needs to understand, written in plain English. Abbreviations are unpacked (e.g. "SME" → Subject Matter Expert). Internal plumbing (caches, sync trackers, audit logs) is filtered out automatically. Drawn from your spec *and* your actual UI nav, routes, and domain logic. |
 | **Setup** | Required environment variables extracted from your rules |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net, and adds plain-English descriptions so you can read it too. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
