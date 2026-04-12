@@ -23,6 +23,7 @@ import { runScaleMonitor, renderScaleReport } from './src/scale/monitor';
 import * as crypto from 'crypto';
 import { buildInterviewPrompt, buildSpecFromTranscript, InterviewTranscript } from './src/interview/interviewer';
 import { generateProjectReadme, buildReadmeFromManifest } from './src/interview/readme-generator';
+import { scanProject, formatScannedContext } from './src/interview/project-scanner';
 import { checkContradictionsWithLLM, renderContradictionReport } from './src/inspect/contradiction-checker';
 import { injectScopes } from './src/enrich';
 
@@ -618,7 +619,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       // Always regenerate README.md from the compiled manifest
       const readmePath = path.join(dir, 'README.md');
-      const readme = await buildReadmeFromManifest(manifest, apiKey || undefined);
+      const scannedCtx = formatScannedContext(scanProject(dir));
+      const readme = await buildReadmeFromManifest(manifest, apiKey || undefined, scannedCtx || undefined);
       fs.writeFileSync(readmePath, readme, 'utf-8');
 
       const warningText = contradictionReport.contradictions.length > 0
@@ -774,7 +776,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const manifest = parse(requirementsContent);
       fs.writeFileSync(existingManifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
       const readmePath = path.join(input.project_root, 'README.md');
-      fs.writeFileSync(readmePath, await buildReadmeFromManifest(manifest, apiKey || undefined), 'utf-8');
+      const scannedCtx2 = formatScannedContext(scanProject(input.project_root));
+      fs.writeFileSync(readmePath, await buildReadmeFromManifest(manifest, apiKey || undefined, scannedCtx2 || undefined), 'utf-8');
       const entityCount = Object.keys(manifest.dataModel).length;
       const ruleCount = Object.keys(manifest.rules).length;
       sections.push(`✓ manifest.json written (${entityCount} entities, ${ruleCount} rules)`);
@@ -1009,7 +1012,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
       const requirementsContent = fs.readFileSync(requirementsPath, 'utf-8');
       const projectName = path.basename(input.project_root);
-      const readme = await generateProjectReadme(requirementsContent, projectName, apiKey);
+      const codeCtx = formatScannedContext(scanProject(input.project_root));
+      const readme = await generateProjectReadme(requirementsContent, projectName, apiKey, codeCtx || undefined);
 
       const readmePath = path.join(input.project_root, 'README.md');
       fs.writeFileSync(readmePath, readme, 'utf-8');

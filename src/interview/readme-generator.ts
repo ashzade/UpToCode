@@ -22,31 +22,37 @@ function stripFences(text: string): string {
     : text.trim();
 }
 
-async function synthesizeHowItWorks(manifest: Manifest, apiKey: string): Promise<string> {
+async function synthesizeHowItWorks(
+  manifest: Manifest,
+  apiKey: string,
+  codebaseContext?: string,
+): Promise<string> {
   const rules = Object.values(manifest.rules ?? {});
-  if (rules.length === 0) return '';
+  if (rules.length === 0 && !codebaseContext) return '';
 
-  const ruleList = rules
-    .map(r => `- ${r.title}: ${r.message}`)
-    .join('\n');
+  const ruleList = rules.map(r => `- ${r.title}: ${r.message}`).join('\n');
+  const codeSection = codebaseContext
+    ? `\nCurrent codebase (routes, nav, domain logic):\n${codebaseContext}`
+    : '';
 
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 300,
+    max_tokens: 400,
     messages: [{
       role: 'user',
-      content: `You are writing a "How it works" section for a user-facing README for a software product.
+      content: `You are writing a "How it works" section for a user-facing README.
 
 Product: ${manifest.feature.name}
 Purpose: ${manifest.feature.intent ?? ''}
 
-Given these internal app rules, explain what the app does automatically and what it needs to function. Write for a non-technical user — someone who wants to understand the product, not build it.
+Using the spec rules and codebase context below, explain what the app does automatically and what it requires to work. Write for a non-technical user who wants to understand the product, not build it.
 
-Rules (internal):
-${ruleList}
+Spec rules:
+${ruleList || '(none)'}
+${codeSection}
 
-Write a "## How it works" section. Use 3–6 plain-English bullet points. Each bullet should describe a behaviour or requirement from the user's perspective. Don't use words like "rule", "condition", "validation", "entity", or "null". Don't mention error messages. Start each bullet with "**" to bold the key phrase, then "—" and an explanation.
+Write a "## How it works" section. Use 4–7 plain-English bullet points covering the key behaviours a user would notice. Draw on the codebase context to name real features (e.g. actual nav sections, route names, analysis types). Don't use words like "rule", "condition", "validation", "entity", or "null". Bold the key phrase per bullet, then "—" and an explanation.
 
 Output ONLY the markdown section. No preamble.`,
     }],
@@ -57,33 +63,39 @@ Output ONLY the markdown section. No preamble.`,
   return stripFences(content.text) + '\n';
 }
 
-async function synthesizeKeyConcepts(manifest: Manifest, apiKey: string): Promise<string> {
+async function synthesizeKeyConcepts(
+  manifest: Manifest,
+  apiKey: string,
+  codebaseContext?: string,
+): Promise<string> {
   const entities = Object.entries(manifest.dataModel ?? {}).filter(([, e]) => e.description);
-  if (entities.length === 0) return '';
+  if (entities.length === 0 && !codebaseContext) return '';
 
   const entityList = entities
     .map(([name, e]) => `- ${name}: ${e.description}${e.notes ? ` (${e.notes})` : ''}`)
     .join('\n');
+  const codeSection = codebaseContext
+    ? `\nCurrent codebase (routes, nav, domain logic):\n${codebaseContext}`
+    : '';
 
   const client = new Anthropic({ apiKey });
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
-    max_tokens: 500,
+    max_tokens: 600,
     messages: [{
       role: 'user',
-      content: `You are writing a "Key concepts" section for a user-facing README for a software product.
+      content: `You are writing a "Key concepts" section for a user-facing README.
 
 Product: ${manifest.feature.name}
 Purpose: ${manifest.feature.intent ?? ''}
 
-Given these internal data concepts, explain the important ones in plain English from a user's perspective — what they see and interact with, not how the database is structured.
+Using the spec concepts and codebase context below, explain the important concepts and terms a user needs to understand this product. Write from the user's perspective — what they see and interact with, not the database schema.
 
-Skip purely internal/technical concepts like caches, sync trackers, version histories, audit logs, and join tables. Focus on the concepts a user would recognise or care about.
+Spec concepts:
+${entityList || '(none)'}
+${codeSection}
 
-Concepts (internal):
-${entityList}
-
-Write a "## Key concepts" section. Start with one sentence introducing what this product tracks. Then write a bullet per important concept: "**Name** — plain-English explanation of what this is and why it matters to the user." Explain any non-obvious terminology (e.g. if there's an "SME" concept, say what SME means). Under 300 words total.
+Write a "## Key concepts" section. Start with one sentence introducing what the product tracks. Then write a bullet per important concept using the actual names from the UI/codebase (e.g. if there's an "AI Assist" nav section, explain it). Format: "**Name** — plain-English explanation". Unpack any jargon or abbreviations (e.g. "SME" → "Subject Matter Expert — a person tagged as the go-to expert for a topic"). Skip internal plumbing: caches, sync trackers, version history, audit logs. Under 350 words.
 
 Output ONLY the markdown section. No preamble.`,
     }],
@@ -100,11 +112,16 @@ Output ONLY the markdown section. No preamble.`,
  * Build a README.md from a compiled manifest. Called automatically by compile-spec.
  *
  * When apiKey is provided, "How it works" and "Key concepts" are synthesized by
- * Claude Haiku from the raw manifest data so they read like product documentation
- * rather than database definitions. Without a key both sections fall back to a
- * deterministic render (rule titles / entity descriptions verbatim).
+ * Claude Haiku. Pass codebaseContext (from scanProject / formatScannedContext) so
+ * Claude can reference real nav items, route names, and domain vocabulary from the
+ * actual code — not just the spec, which often omits UI structure and terminology.
+ * Without a key both sections fall back to a deterministic render.
  */
-export async function buildReadmeFromManifest(manifest: Manifest, apiKey?: string): Promise<string> {
+export async function buildReadmeFromManifest(
+  manifest: Manifest,
+  apiKey?: string,
+  codebaseContext?: string,
+): Promise<string> {
   const lines: string[] = [];
   const { name, intent } = manifest.feature;
 
@@ -129,7 +146,7 @@ export async function buildReadmeFromManifest(manifest: Manifest, apiKey?: strin
   // ── How it works ─────────────────────────────────────────────
   if (apiKey) {
     try {
-      const section = await synthesizeHowItWorks(manifest, apiKey);
+      const section = await synthesizeHowItWorks(manifest, apiKey, codebaseContext);
       if (section) lines.push(section, '');
     } catch { /* non-fatal — skip section on failure */ }
   } else {
@@ -147,7 +164,7 @@ export async function buildReadmeFromManifest(manifest: Manifest, apiKey?: strin
   // ── Key concepts ─────────────────────────────────────────────
   if (apiKey) {
     try {
-      const section = await synthesizeKeyConcepts(manifest, apiKey);
+      const section = await synthesizeKeyConcepts(manifest, apiKey, codebaseContext);
       if (section) lines.push(section, '');
     } catch { /* non-fatal — fall through to deterministic */ }
   } else {
@@ -185,7 +202,11 @@ export async function buildReadmeFromManifest(manifest: Manifest, apiKey?: strin
 
 // ── generate-readme (full LLM rewrite from requirements.md) ──────────────────
 
-function buildPrompt(requirementsContent: string, projectName: string): string {
+function buildPrompt(requirementsContent: string, projectName: string, codebaseContext?: string): string {
+  const codeSection = codebaseContext
+    ? `\nCurrent codebase (nav structure, routes, domain logic):\n${codebaseContext}\n`
+    : '';
+
   return `You are writing a README.md for a software project. The project is described in the spec below.
 
 Write a clear, friendly README that a non-technical person could understand. Do NOT use jargon. Do NOT mention UpToCode, manifest.json, requirements.md, or any internal tooling.
@@ -193,7 +214,7 @@ Write a clear, friendly README that a non-technical person could understand. Do 
 The README should include:
 1. A one-line headline describing what the app does
 2. A short paragraph (2-3 sentences) explaining what problem it solves and who it's for
-3. A "Features" section listing the key things users can do (plain English, bullet points)
+3. A "Features" section listing the key things users can do (plain English, bullet points) — use real feature names from the codebase if provided (e.g. actual nav section names like "AI Assist")
 4. A "Getting started" section — if there are environment variables in the spec, list them as setup steps; otherwise keep this brief
 5. Nothing else — no badges, no license section, no contributing guide
 
@@ -201,7 +222,7 @@ Project name: ${projectName}
 
 Spec:
 ${requirementsContent}
-
+${codeSection}
 Output ONLY the README.md content. No preamble, no explanation.`;
 }
 
@@ -209,13 +230,14 @@ export async function generateProjectReadme(
   requirementsContent: string,
   projectName: string,
   apiKey: string,
+  codebaseContext?: string,
 ): Promise<string> {
   const client = new Anthropic({ apiKey });
 
   const message = await client.messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 1024,
-    messages: [{ role: 'user', content: buildPrompt(requirementsContent, projectName) }],
+    messages: [{ role: 'user', content: buildPrompt(requirementsContent, projectName, codebaseContext) }],
   });
 
   const content = message.content[0];
