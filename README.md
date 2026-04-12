@@ -140,6 +140,18 @@ Condition: env(GOOGLE_PLACES_API_KEY) != ''
 | *"Interview me to build my spec"* | Builds your `requirements.md` by helping you think through the rules. |
 | *"Help me set up GitHub for this project"* | Creates your repo, generates a README, pushes your code, sets up the inspection workflow, and enables branch protection. |
 | *"Generate a README for my project"* | Writes a plain-English README.md from your spec. |
+
+### What the generated README contains
+
+Every time you run `compile-spec`, UpToCode regenerates your `README.md` automatically — no separate step needed. The README is built from your `manifest.json` and includes:
+
+| Section | What it shows |
+| :--- | :--- |
+| **Integrations** | External services your app connects to (e.g. Stripe, Google Drive, Slack) |
+| **Diagrams** | Flow diagrams for your state machines and key logic paths |
+| **Business / Validation / Security rules** | Your enforced rules, grouped by type, with severity |
+| **Information architecture** | Every named concept in your product — screens, data objects, and key entities — described in plain English. Only items with a description appear, so internal technical models are filtered out automatically. |
+| **Setup** | Required environment variables extracted from your rules |
 | *"Run compile-spec for this project"* | Turns your `requirements.md` into a machine-readable safety net, and adds plain-English descriptions so you can read it too. |
 | *"Run contract-diff for this project"* | Makes sure your code actually follows your Playbook. |
 | *"Run generate-tests for this project"* | Finds the hidden ways your app could break — then checks whether each one is already guarded against and fixes any that aren't. |

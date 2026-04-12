@@ -34,6 +34,10 @@ export function buildReadmeFromManifest(manifest: Manifest): string {
     lines.push('');
   }
 
+  // ── Diagrams ─────────────────────────────────────────────────
+  const diagrams = generateDiagramsSection(manifest);
+  if (diagrams) lines.push(diagrams);
+
   // ── Rules ────────────────────────────────────────────────────
   const rulesByType: Record<string, typeof manifest.rules[string][]> = {};
   for (const rule of Object.values(manifest.rules ?? {})) {
@@ -51,66 +55,16 @@ export function buildReadmeFromManifest(manifest: Manifest): string {
     lines.push('');
   }
 
-  // ── Diagrams ─────────────────────────────────────────────────
-  const diagrams = generateDiagramsSection(manifest);
-  if (diagrams) lines.push(diagrams);
-
-  // ── Data model ───────────────────────────────────────────────
+  // ── Information architecture ──────────────────────────────────
   const entities = Object.entries(manifest.dataModel ?? {});
-  if (entities.length > 0) {
-    lines.push('## Data model', '');
-    for (const [ename, entity] of entities) {
-      if (entity.description || entity.notes) {
-        lines.push(`### ${ename}`, '');
-        if (entity.description) lines.push(entity.description, '');
-        if (entity.notes) lines.push(entity.notes, '');
-        const keyFields = Object.values(entity.fields ?? {})
-          .filter(f => f.modifiers.some(m => ['primary', 'required'].includes(m.name)))
-          .slice(0, 4)
-          .map(f => f.name);
-        if (keyFields.length > 0) {
-          lines.push(`Key fields: ${keyFields.join(', ')}`, '');
-        }
-      } else {
-        const fieldCount = Object.keys(entity.fields ?? {}).length;
-        const keyFields = Object.values(entity.fields ?? {})
-          .filter(f => f.modifiers.some(m => ['required', 'primary'].includes(m.name)))
-          .slice(0, 3)
-          .map(f => f.name);
-        const hint = keyFields.length > 0 ? ` (${keyFields.join(', ')})` : ` (${fieldCount} fields)`;
-        lines.push(`- **${ename}**${hint}`);
+  const describedEntities = entities.filter(([, e]) => e.description);
+  if (describedEntities.length > 0) {
+    lines.push('## Information architecture', '');
+    for (const [ename, entity] of describedEntities) {
+      lines.push(`- **${ename}** — ${entity.description}`);
+      if (entity.notes) {
+        lines.push(`  ${entity.notes}`);
       }
-    }
-    lines.push('');
-  }
-
-  // ── Lifecycle ────────────────────────────────────────────────
-  const sm = manifest.stateMachine;
-  if (sm?.transitions?.length > 0) {
-    lines.push('## Lifecycle', '');
-    const states = Object.entries(sm.states ?? {});
-    if (states.length > 0) {
-      for (const [state, desc] of states) {
-        lines.push(`- **${state}** — ${desc}`);
-      }
-      lines.push('');
-    }
-    for (const t of sm.transitions) {
-      const guard = t.guard ? ` _(guard: ${t.guard})_` : '';
-      lines.push(`- ${t.from} → **${t.to}**: ${t.trigger ?? 'automatic'}${guard}`);
-    }
-    lines.push('');
-  }
-
-  // ── Actors ───────────────────────────────────────────────────
-  const actors = Object.entries(manifest.actors ?? {});
-  if (actors.length > 0) {
-    lines.push('## Actors', '');
-    for (const [aname, actor] of actors) {
-      const writes = Array.isArray(actor.write)
-        ? actor.write.join(', ')
-        : actor.write === '*' ? 'everything' : 'nothing';
-      lines.push(`- **${aname}** — writes: ${writes}`);
     }
     lines.push('');
   }
