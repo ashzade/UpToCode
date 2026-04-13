@@ -138,10 +138,6 @@ export async function buildReadmeFromManifest(
     lines.push('');
   }
 
-  // ── Diagrams ─────────────────────────────────────────────────
-  const diagrams = generateDiagramsSection(manifest);
-  if (diagrams) lines.push(diagrams);
-
   // ── How it works ─────────────────────────────────────────────
   let howItWorksDone = false;
   try {
@@ -179,6 +175,10 @@ export async function buildReadmeFromManifest(
       lines.push('');
     }
   }
+
+  // ── Diagrams ─────────────────────────────────────────────────
+  const diagrams = generateDiagramsSection(manifest);
+  if (diagrams) lines.push(diagrams);
 
   // ── Setup ────────────────────────────────────────────────────
   const envVars = new Set<string>();
