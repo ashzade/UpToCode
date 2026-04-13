@@ -4,10 +4,10 @@
  * Reads requirements.md and calls Claude to produce a friendly, non-technical
  * README describing what the app does, who it's for, and how to get started.
  *
- * Also exports buildReadmeFromManifest — called automatically by compile-spec
- * to keep README.md in sync. When an API key is available it calls Claude to
- * synthesize plain-English "How it works" and "Key concepts" sections from the
- * raw manifest data. Without a key it falls back to a deterministic render.
+ * Also exports buildReadmeFromManifest — called automatically by compile-spec.
+ * It always attempts LLM synthesis for "How it works" and "Key concepts",
+ * letting the Anthropic SDK auto-detect the API key from the environment
+ * (ANTHROPIC_API_KEY). Falls back to a deterministic render if the call fails.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -24,7 +24,6 @@ function stripFences(text: string): string {
 
 async function synthesizeHowItWorks(
   manifest: Manifest,
-  apiKey: string,
   codebaseContext?: string,
 ): Promise<string> {
   const rules = Object.values(manifest.rules ?? {});
@@ -35,7 +34,7 @@ async function synthesizeHowItWorks(
     ? `\nCurrent codebase (routes, nav, domain logic):\n${codebaseContext}`
     : '';
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic();
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 400,
@@ -65,7 +64,6 @@ Output ONLY the markdown section. No preamble.`,
 
 async function synthesizeKeyConcepts(
   manifest: Manifest,
-  apiKey: string,
   codebaseContext?: string,
 ): Promise<string> {
   const entities = Object.entries(manifest.dataModel ?? {}).filter(([, e]) => e.description);
@@ -78,7 +76,7 @@ async function synthesizeKeyConcepts(
     ? `\nCurrent codebase (routes, nav, domain logic):\n${codebaseContext}`
     : '';
 
-  const client = new Anthropic({ apiKey });
+  const client = new Anthropic();
   const msg = await client.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 600,
@@ -111,15 +109,16 @@ Output ONLY the markdown section. No preamble.`,
 /**
  * Build a README.md from a compiled manifest. Called automatically by compile-spec.
  *
- * When apiKey is provided, "How it works" and "Key concepts" are synthesized by
- * Claude Haiku. Pass codebaseContext (from scanProject / formatScannedContext) so
- * Claude can reference real nav items, route names, and domain vocabulary from the
- * actual code — not just the spec, which often omits UI structure and terminology.
- * Without a key both sections fall back to a deterministic render.
+ * Always attempts LLM synthesis for "How it works" and "Key concepts" using the
+ * Anthropic SDK's auto-detected API key (ANTHROPIC_API_KEY env var). If the call
+ * fails for any reason, both sections fall back to a deterministic render.
+ *
+ * Pass codebaseContext (from scanProject / formatScannedContext) so Claude can
+ * reference real nav items, route names, and domain vocabulary from the actual
+ * codebase — not just the spec, which rarely captures UI structure or terminology.
  */
 export async function buildReadmeFromManifest(
   manifest: Manifest,
-  apiKey?: string,
   codebaseContext?: string,
 ): Promise<string> {
   const lines: string[] = [];
@@ -144,12 +143,12 @@ export async function buildReadmeFromManifest(
   if (diagrams) lines.push(diagrams);
 
   // ── How it works ─────────────────────────────────────────────
-  if (apiKey) {
-    try {
-      const section = await synthesizeHowItWorks(manifest, apiKey, codebaseContext);
-      if (section) lines.push(section, '');
-    } catch { /* non-fatal — skip section on failure */ }
-  } else {
+  let howItWorksDone = false;
+  try {
+    const section = await synthesizeHowItWorks(manifest, codebaseContext);
+    if (section) { lines.push(section, ''); howItWorksDone = true; }
+  } catch { /* non-fatal — fall through to deterministic */ }
+  if (!howItWorksDone) {
     // Deterministic fallback: rule titles only, no error messages
     const rules = Object.values(manifest.rules ?? {});
     if (rules.length > 0) {
@@ -162,12 +161,12 @@ export async function buildReadmeFromManifest(
   }
 
   // ── Key concepts ─────────────────────────────────────────────
-  if (apiKey) {
-    try {
-      const section = await synthesizeKeyConcepts(manifest, apiKey, codebaseContext);
-      if (section) lines.push(section, '');
-    } catch { /* non-fatal — fall through to deterministic */ }
-  } else {
+  let keyConceptsDone = false;
+  try {
+    const section = await synthesizeKeyConcepts(manifest, codebaseContext);
+    if (section) { lines.push(section, ''); keyConceptsDone = true; }
+  } catch { /* non-fatal — fall through to deterministic */ }
+  if (!keyConceptsDone) {
     // Deterministic fallback: flat bullet list of described entities
     const entities = Object.entries(manifest.dataModel ?? {});
     const described = entities.filter(([, e]) => e.description);
