@@ -617,16 +617,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const manifestPath = path.join(dir, 'manifest.json');
       fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
 
-      // Always regenerate README.md from the compiled manifest
+      // Regenerate README.md only when it is machine-managed (starts with the
+      // uptocode sentinel) or does not yet exist.  A hand-edited README that
+      // lacks the sentinel is left untouched so manual edits are never lost.
       const readmePath = path.join(dir, 'README.md');
-      const scannedCtx = formatScannedContext(scanProject(dir));
-      const readme = await buildReadmeFromManifest(manifest, scannedCtx || undefined);
-      fs.writeFileSync(readmePath, readme, 'utf-8');
+      const existingReadme = fs.existsSync(readmePath) ? fs.readFileSync(readmePath, 'utf-8') : null;
+      const readmeManaged = !existingReadme || existingReadme.startsWith('<!-- uptocode:managed -->');
+      if (readmeManaged) {
+        const scannedCtx = formatScannedContext(scanProject(dir));
+        const readme = await buildReadmeFromManifest(manifest, scannedCtx || undefined);
+        fs.writeFileSync(readmePath, readme, 'utf-8');
+      }
 
       const warningText = contradictionReport.contradictions.length > 0
         ? '\n\n' + renderContradictionReport(contradictionReport)
         : '';
-      const summaryLine = `✓ manifest.json and README.md written to ${dir}`;
+      const readmeNote = readmeManaged ? 'README.md written' : 'README.md preserved (hand-edited)';
+      const summaryLine = `✓ manifest.json and ${readmeNote} to ${dir}`;
       const text = `${JSON.stringify(manifest, null, 2)}\n\n${summaryLine}${warningText}`;
 
       return {
@@ -776,12 +783,16 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const manifest = parse(requirementsContent);
       fs.writeFileSync(existingManifestPath, JSON.stringify(manifest, null, 2), 'utf-8');
       const readmePath = path.join(input.project_root, 'README.md');
-      const scannedCtx2 = formatScannedContext(scanProject(input.project_root));
-      fs.writeFileSync(readmePath, await buildReadmeFromManifest(manifest, scannedCtx2 || undefined), 'utf-8');
+      const existingReadme = fs.existsSync(readmePath) ? fs.readFileSync(readmePath, 'utf-8') : null;
+      const readmeManaged = !existingReadme || existingReadme.startsWith('<!-- uptocode:managed -->');
+      if (readmeManaged) {
+        const scannedCtx2 = formatScannedContext(scanProject(input.project_root));
+        fs.writeFileSync(readmePath, await buildReadmeFromManifest(manifest, scannedCtx2 || undefined), 'utf-8');
+      }
       const entityCount = Object.keys(manifest.dataModel).length;
       const ruleCount = Object.keys(manifest.rules).length;
       sections.push(`✓ manifest.json written (${entityCount} entities, ${ruleCount} rules)`);
-      sections.push(`✓ README.md written`);
+      sections.push(readmeManaged ? `✓ README.md written` : `✓ README.md preserved (hand-edited)`);
 
       // 3. contract-diff
       sections.push('\n## Step 3: contract-diff');

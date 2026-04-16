@@ -196,7 +196,11 @@ export async function buildReadmeFromManifest(
     lines.push('');
   }
 
-  return lines.join('\n').trimEnd() + '\n';
+  // Sentinel lets compile-spec detect whether this file is still machine-managed.
+  // If a user removes or edits past this line, uptocode treats the README as
+  // hand-authored and stops overwriting it.
+  const sentinel = '<!-- uptocode:managed -->\n';
+  return sentinel + lines.join('\n').trimEnd() + '\n';
 }
 
 // ── generate-readme (full LLM rewrite from requirements.md) ──────────────────
